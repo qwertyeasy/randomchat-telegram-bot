@@ -13,15 +13,6 @@ from app.services.session_manager import SessionManager
 router = Router()
 
 
-@router.message(F.text)
-async def relay_any_text(message: Message, redis: Redis, db: AsyncSession) -> None:
-    if message.text in {"/next", "/stop", "/find", "/start", "/help", "/delete"}:
-        return
-
-    service = ChatService(message.bot, redis, db)
-    await service.relay(message.from_user.id, message.chat.id, message.message_id)
-
-
 @router.message(Command("next"))
 @router.message(F.text == "⏭ Следующий")
 async def next_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
@@ -31,14 +22,16 @@ async def next_chat(message: Message, state: FSMContext, redis: Redis, db: Async
 
     service = ChatService(message.bot, redis, db)
     await service.next_chat(message.from_user.id, search_filter, priority)
+    await state.clear()
     await message.answer("Ищем следующего собеседника...", reply_markup=main_menu_kb)
 
 
 @router.message(Command("stop"))
 @router.message(F.text == "⏹ Выйти")
-async def stop_chat(message: Message, redis: Redis, db: AsyncSession) -> None:
+async def stop_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
     service = ChatService(message.bot, redis, db)
     await service.stop_chat(message.from_user.id)
+    await state.clear()
     await message.answer("Чат завершён.", reply_markup=main_menu_kb)
 
 

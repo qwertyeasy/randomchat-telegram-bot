@@ -1,12 +1,19 @@
 from aiogram import Router
 
-from app.bot.handlers.common import router as common_router
-from app.bot.handlers.start import router as start_router
-from app.bot.handlers.queue import router as queue_router
 from app.bot.handlers.chat import router as chat_router
+from app.bot.handlers.content import router as content_router
+from app.bot.handlers.help import router as help_router
+from app.bot.handlers.queue import router as queue_router
+from app.bot.handlers.start import router as start_router
+from app.bot.handlers.text import router as text_router
 
-router = Router()
-router.include_router(start_router)
-router.include_router(queue_router)
-router.include_router(chat_router)
-router.include_router(common_router)
+router = Router(name=__name__)
+
+router.include_routers(
+    start_router,
+    help_router,
+    queue_router,
+    chat_router,
+    text_router,
+    content_router,
+)

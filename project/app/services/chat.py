@@ -7,6 +7,22 @@ from app.services.session_manager import SessionManager
 
 
 class ChatService:
+    SYSTEM_TEXTS = {
+        "/next",
+        "/stop",
+        "/find",
+        "/start",
+        "/help",
+        "/delete",
+        "⏭ Следующий",
+        "⏹ Выйти",
+        "Ищем собеседника...",
+        "Собеседник найден. Можете начинать чат.",
+        "Чат завершён.",
+        "Жалоба отправлена.",
+        "Слишком много запросов. Подождите минуту.",
+    }
+
     def __init__(self, bot: Bot, redis: Redis, db: AsyncSession):
         self.bot = bot
         self.redis = redis
@@ -14,7 +30,13 @@ class ChatService:
         self.sessions = SessionManager(redis, db)
         self.matcher = MatcherService(bot, redis, db)
 
-    async def relay(self, user_id: int, chat_id: int, message_id: int) -> None:
+    def _is_system_text(self, text: str | None) -> bool:
+        return bool(text) and (text in self.SYSTEM_TEXTS or text.startswith("/"))
+
+    async def relay(self, user_id: int, chat_id: int, message_id: int, text: str | None = None) -> None:
+        if text is not None and self._is_system_text(text):
+            return
+
         session_id = await self.sessions.get_session_id(user_id)
         if not session_id:
             return

@@ -14,12 +14,7 @@ router = Router()
 
 @router.message(Command("find"))
 @router.message(F.text == "🔍 Найти чат")
-async def find_chat(
-    message: Message,
-    state: FSMContext,
-    redis: Redis,
-    db: AsyncSession,
-) -> None:
+async def find_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
     data = await state.get_data()
     search_filter = data.get("search_filter", "any")
     priority = int(data.get("priority", 0))
