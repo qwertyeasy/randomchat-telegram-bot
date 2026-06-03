@@ -31,18 +31,4 @@ async def find_chat(
 
     matcher = MatcherService(redis, db)
     await matcher.add_to_queue(message.from_user.id, search_filter, priority)
-    partner_id = await matcher.try_match(message.from_user.id, search_filter)
-
-    if partner_id:
-        await message.answer("Собеседник найден.", reply_markup=chat_menu_kb)
-    else:
-        await message.answer("Ищем собеседника...")
-
-@router.message(Command("stop"))
-@router.message(F.text == "⏹ Выйти")
-async def stop_from_queue_or_chat(message: Message, redis: Redis, db: AsyncSession) -> None:
-    matcher = MatcherService(redis, db)
-    await matcher.remove_from_queue(message.from_user.id, "any")
-    chat = matcher.sessions
-    await chat.close(message.from_user.id) if await chat.get_session_id(message.from_user.id) else None
-    await message.answer("Поиск остановлен.", reply_markup=chat_menu_kb)
+    await message.answer("Ищем собеседника...", reply_markup=chat_menu_kb)

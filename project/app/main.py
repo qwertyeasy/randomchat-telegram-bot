@@ -10,6 +10,7 @@ from app.bot.middlewares.context import ContextMiddleware
 from app.bot.router import router
 from app.core.config import settings
 from app.services.cleanup import CleanupService
+from app.services.matchmaking_worker import MatchmakingWorker
 
 engine = create_async_engine(settings.database_url, echo=False)
 session_maker = async_sessionmaker(engine, expire_on_commit=False)
@@ -21,12 +22,15 @@ dp.include_router(router)
 dp.update.middleware(ContextMiddleware(redis=redis, db_factory=session_maker))
 
 cleanup = CleanupService(redis, session_maker)
+matchmaking = MatchmakingWorker(redis, session_maker)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cleanup.start()
+    matchmaking.start()
     yield
+    await matchmaking.stop()
     await cleanup.stop()
     await bot.session.close()
     await redis.aclose()

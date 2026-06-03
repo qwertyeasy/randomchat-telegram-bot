@@ -1,5 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,9 +24,13 @@ async def relay_any_text(message: Message, redis: Redis, db: AsyncSession) -> No
 
 @router.message(Command("next"))
 @router.message(F.text == "⏭ Следующий")
-async def next_chat(message: Message, redis: Redis, db: AsyncSession) -> None:
+async def next_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
+    data = await state.get_data()
+    search_filter = data.get("search_filter", "any")
+    priority = int(data.get("priority", 0))
+
     service = ChatService(message.bot, redis, db)
-    await service.close_session(message.from_user.id)
+    await service.next_chat(message.from_user.id, search_filter, priority)
     await message.answer("Ищем следующего собеседника...", reply_markup=main_menu_kb)
 
 
@@ -33,7 +38,7 @@ async def next_chat(message: Message, redis: Redis, db: AsyncSession) -> None:
 @router.message(F.text == "⏹ Выйти")
 async def stop_chat(message: Message, redis: Redis, db: AsyncSession) -> None:
     service = ChatService(message.bot, redis, db)
-    await service.close_session(message.from_user.id)
+    await service.stop_chat(message.from_user.id)
     await message.answer("Чат завершён.", reply_markup=main_menu_kb)
 
 
