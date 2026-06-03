@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.matcher import MatcherService
 from app.services.session_manager import SessionManager
+from app.bot.keyboards.reply import main_menu_kb
 
 
 class ChatService:
@@ -72,3 +73,27 @@ class ChatService:
 
         if session_id:
             await self.redis.delete(f"afk:{session_id}")
+
+
+    async def end_chat_for_user(self, user_id: int, reason: str = "Чат завершен") -> None:
+        partner_id = await self.redis.get(f"chat:partner:{user_id}")
+
+        await self._clear_user_state(user_id)
+        await self._send_menu(user_id, reason)
+
+        if partner_id:
+            partner_id = int(partner_id)
+            await self._clear_user_state(partner_id)
+            await self._send_menu(partner_id, "Собеседник вышел. Чат завершен.")
+
+    async def _clear_user_state(self, user_id: int) -> None:
+        await self.redis.delete(f"chat:partner:{user_id}")
+        await self.redis.delete(f"chat:state:{user_id}")
+        await self.redis.delete(f"chat:room:{user_id}")
+
+    async def _send_menu(self, user_id: int, text: str) -> None:
+        await self.bot.send_message(
+            user_id,
+            text,
+            reply_markup=main_menu_kb(),
+        )

@@ -23,7 +23,8 @@ async def next_chat(message: Message, state: FSMContext, redis: Redis, db: Async
     service = ChatService(message.bot, redis, db)
     await service.next_chat(message.from_user.id, search_filter, priority)
     await state.clear()
-    await message.answer("Ищем следующего собеседника...", reply_markup=main_menu_kb)
+    # await message.answer("Ищем следующего собеседника...", reply_markup=main_menu_kb)
+    await message.answer("Ищем следующего собеседника...")
 
 
 @router.message(Command("stop"))
