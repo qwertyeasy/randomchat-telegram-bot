@@ -25,11 +25,9 @@ cleanup = CleanupService(redis, session_maker)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await bot.set_webhook(f"{settings.public_base_url}{settings.webhook_path}")
     cleanup.start()
     yield
     await cleanup.stop()
-    await bot.delete_webhook(drop_pending_updates=True)
     await bot.session.close()
     await redis.aclose()
     await engine.dispose()
