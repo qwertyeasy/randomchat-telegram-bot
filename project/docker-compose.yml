@@ -9,7 +9,7 @@ services:
     depends_on:
       - postgres
       - redis
-    restart: unless-stopped
+    # restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
