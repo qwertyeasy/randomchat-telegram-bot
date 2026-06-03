@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+aiogram>=3.0.0
+SQLAlchemy>=2.0
+asyncpg
+redis>=5.0.0
+pydantic-settings
+alembic
