@@ -1,8 +1,8 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import Update
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -24,25 +24,47 @@ dp.update.middleware(ContextMiddleware(redis=redis, db_factory=session_maker))
 cleanup = CleanupService(redis, session_maker)
 matchmaking = MatchmakingWorker(bot, redis, session_maker)
 
+polling_task: asyncio.Task | None = None
+
+
+async def polling_runner() -> None:
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot, close_bot_session=False)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global polling_task
+
     cleanup.start()
     matchmaking.start()
-    yield
-    await matchmaking.stop()
-    await cleanup.stop()
-    await bot.session.close()
-    await redis.aclose()
-    await engine.dispose()
+    polling_task = asyncio.create_task(polling_runner())
+
+    try:
+        yield
+    finally:
+        if polling_task:
+            polling_task.cancel()
+            try:
+                await polling_task
+            except asyncio.CancelledError:
+                pass
+
+        await matchmaking.stop()
+        await cleanup.stop()
+        await bot.session.close()
+        await redis.aclose()
+        await engine.dispose()
 
 
 app = FastAPI(lifespan=lifespan)
 
 
-@app.post(settings.webhook_path)
-async def telegram_webhook(request: Request) -> dict:
-    data = await request.json()
-    update = Update.model_validate(data)
-    await dp.feed_update(bot, update)
-    return {"ok": True}
+@app.get("/")
+async def root() -> dict:
+    return {"status": "ok"}
+
+
+@app.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}
