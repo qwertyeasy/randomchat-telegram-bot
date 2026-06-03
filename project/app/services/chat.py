@@ -12,7 +12,7 @@ class ChatService:
         self.redis = redis
         self.db = db
         self.sessions = SessionManager(redis, db)
-        self.matcher = MatcherService(redis, db)
+        self.matcher = MatcherService(bot, redis, db)
 
     async def relay(self, user_id: int, chat_id: int, message_id: int) -> None:
         session_id = await self.sessions.get_session_id(user_id)

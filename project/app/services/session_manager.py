@@ -14,8 +14,8 @@ class SessionManager:
         self.db = db
         self.sessions = SessionRepository(db)
 
-    async def create(self, user1_id: int, user2_id: int) -> uuid.UUID:
-        session_id = uuid.uuid4()
+    async def create(self, user1_id: int, user2_id: int) -> str:
+        session_id = str(uuid.uuid4())
 
         session = ChatSession(
             session_id=session_id,
@@ -27,14 +27,16 @@ class SessionManager:
         await self.sessions.create(session)
         await self.db.commit()
 
-        mapping = {
-            "user1_id": user1_id,
-            "user2_id": user2_id,
-            "status": "active",
-        }
-        await self.redis.hset(f"session:{session_id}", mapping=mapping)
-        await self.redis.set(f"user:{user1_id}:session", str(session_id))
-        await self.redis.set(f"user:{user2_id}:session", str(session_id))
+        await self.redis.hset(
+            f"session:{session_id}",
+            mapping={
+                "user1_id": user1_id,
+                "user2_id": user2_id,
+                "status": "active",
+            },
+        )
+        await self.redis.set(f"user:{user1_id}:session", session_id)
+        await self.redis.set(f"user:{user2_id}:session", session_id)
         return session_id
 
     async def get_session_id(self, user_id: int) -> str | None:
@@ -62,4 +64,3 @@ class SessionManager:
                     await self.redis.delete(f"user:{uid}:session")
 
         await self.redis.delete(f"session:{session_id}")
-        await self.redis.delete(f"afk:{session_id}")

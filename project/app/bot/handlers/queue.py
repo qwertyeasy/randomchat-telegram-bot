@@ -29,6 +29,6 @@ async def find_chat(
         await message.answer("Слишком много запросов. Подождите минуту.")
         return
 
-    matcher = MatcherService(redis, db)
+    matcher = MatcherService(message.bot, redis, db)
     await matcher.add_to_queue(message.from_user.id, search_filter, priority)
     await message.answer("Ищем собеседника...", reply_markup=chat_menu_kb)

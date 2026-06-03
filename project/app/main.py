@@ -22,7 +22,7 @@ dp.include_router(router)
 dp.update.middleware(ContextMiddleware(redis=redis, db_factory=session_maker))
 
 cleanup = CleanupService(redis, session_maker)
-matchmaking = MatchmakingWorker(redis, session_maker)
+matchmaking = MatchmakingWorker(bot, redis, session_maker)
 
 
 @asynccontextmanager

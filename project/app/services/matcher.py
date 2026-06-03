@@ -1,5 +1,6 @@
 import time
 
+from aiogram import Bot
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +9,8 @@ from app.services.session_manager import SessionManager
 
 
 class MatcherService:
-    def __init__(self, redis: Redis, db: AsyncSession):
+    def __init__(self, bot: Bot, redis: Redis, db: AsyncSession):
+        self.bot = bot
         self.redis = redis
         self.db = db
         self.queue = QueueService(redis)
@@ -50,4 +52,8 @@ class MatcherService:
             await self.queue.remove_user(search_filter, user2_id)
 
             await self.sessions.create(user1_id, user2_id)
+
+            await self.bot.send_message(user1_id, "Собеседник найден. Можете начинать чат.")
+            await self.bot.send_message(user2_id, "Собеседник найден. Можете начинать чат.")
+
             return user1_id, user2_id

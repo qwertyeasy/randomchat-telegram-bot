@@ -1,5 +1,6 @@
 import asyncio
 
+from aiogram import Bot
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -7,7 +8,14 @@ from app.services.matcher import MatcherService
 
 
 class MatchmakingWorker:
-    def __init__(self, redis: Redis, db_factory: async_sessionmaker[AsyncSession], filters: list[str] | None = None):
+    def __init__(
+        self,
+        bot: Bot,
+        redis: Redis,
+        db_factory: async_sessionmaker[AsyncSession],
+        filters: list[str] | None = None,
+    ):
+        self.bot = bot
         self.redis = redis
         self.db_factory = db_factory
         self.filters = filters or ["any", "male", "female"]
@@ -18,7 +26,7 @@ class MatchmakingWorker:
         self._running = True
         while self._running:
             async with self.db_factory() as db:
-                matcher = MatcherService(self.redis, db)
+                matcher = MatcherService(self.bot, self.redis, db)
                 for search_filter in self.filters:
                     try:
                         await matcher.try_match_once(search_filter)
