@@ -1,39 +1,110 @@
-# Random Person Bot
+# Random Chat Telegram Bot
 
-Telegram bot for anonymous 1-on-1 random chat.
+Анонимный Telegram-бот для поиска случайного собеседника по фильтру: мужчины, женщины или все пользователи.
 
-## Run locally
+## Возможности
 
-1. Copy `.env.example` to `.env`
-2. Fill `BOT_TOKEN`
-3. Start services:
+- Регистрация пользователя через `/start`.
+- Согласие на обработку данных.
+- Выбор пола.
+- Выбор фильтра поиска:
+  - Мужской.
+  - Женский.
+  - Не указано.
+- Поиск собеседника по очереди.
+- Диалог 1 на 1.
+- Переход к следующему собеседнику.
+- Завершение диалога.
+- Жалоба на собеседника.
+- Настройки чата и передача контакта.
 
+## Команды
+
+- `/start` — запуск бота и прохождение стартового flow.
+- `/find` — начать поиск собеседника.
+- `/next` — завершить текущий диалог и искать следующего.
+- `/stop` — завершить текущий диалог и выйти в главное меню.
+- `/complain` — отправить жалобу на собеседника.
+- `/help` — показать справку.
+- `/settings` — изменить фильтр поиска.
+
+## Кнопки
+
+### Главное меню
+- `🔍 Найти чат`
+- `ℹ️ Справка`
+- `⚙️ Настройки`
+
+### Меню чата
+- `⏭ Следующий`
+- `⏹ Выйти`
+- `⚠️ Пожаловаться`
+- `⚙️ Настройки чата`
+
+### Настройки поиска
+- `Мужской`
+- `Женский`
+- `Не указано`
+
+### Настройки чата
+- `📱 Поделиться контактом`
+- `↩️ Вернуться к чату`
+
+## Технологии
+
+- Python 3.12
+- aiogram 3
+- FastAPI
+- PostgreSQL
+- Redis
+- Docker
+- Polling
+
+## Структура проекта
+
+```text
+project/
+├── app/
+│   ├── bot/
+│   │   ├── handlers/
+│   │   ├── keyboards/
+│   │   ├── middlewares/
+│   │   ├── states/
+│   │   └── router.py
+│   ├── core/
+│   ├── db/
+│   └── services/
+├── Dockerfile
+├── docker-compose.yml
+└── .env
+```
+
+## Конфигурация
+
+Пример `.env`:
+
+```env
+bot_token=YOUR_BOT_TOKEN
+database_url=postgresql+asyncpg://user:pass@db:5432/app
+redis_url=redis://redis:6379/0
+```
+
+## Запуск локально
+
+### Через Docker
 ```bash
 docker compose up -d --build
 ```
 
-4. Apply migrations:
-
+### Без Docker
 ```bash
-docker compose exec app alembic upgrade head
+python -m pip install -r requirements.txt
+python -m app.main
 ```
 
-5. Open app:
+## Примечания
 
-- webhook server: `http://localhost:8000`
-
-## Cloudflare Tunnel
-
-Expose the local app with Cloudflare Quick Tunnel:
-
-```bash
-cloudflared tunnel --url http://localhost:8000
-```
-
-Use the generated `trycloudflare.com` URL as `PUBLIC_BASE_URL`.
-
-## Notes
-
-- Production uses webhook mode only.
-- Redis stores queue/session runtime state.
-- PostgreSQL stores users, sessions, reports, blocks.
+- Бот работает в режиме polling.
+- Для поиска используются очереди в Redis.
+- Активная сессия чата хранится в Redis и базе данных.
+- Фильтр поиска сохраняется в FSM и в профиле пользователя.

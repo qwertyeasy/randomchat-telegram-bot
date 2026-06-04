@@ -34,6 +34,26 @@ class ChatService:
     def _is_system_text(self, text: str | None) -> bool:
         return bool(text) and (text in self.SYSTEM_TEXTS or text.startswith("/"))
 
+    async def get_active_users_count(self) -> int:
+        count = 0
+        cursor = 0
+        while True:
+            cursor, keys = await self.redis.scan(cursor=cursor, match="online:*", count=200)
+            count += len(keys)
+            if cursor == 0:
+                break
+        return count
+
+    async def start_search(self, user_id: int, search_filter: str, priority: int = 0) -> None:
+        active_users = await self.get_active_users_count()
+        await self.matcher.add_to_queue(user_id, search_filter, priority)
+
+        await self.bot.send_message(
+            user_id,
+            f"Активные пользователи: {active_users}\nИщем собеседника...",
+            reply_markup=chat_menu_kb,
+        )
+
     async def relay(self, user_id: int, chat_id: int, message_id: int, text: str | None = None) -> None:
         if text is not None and self._is_system_text(text):
             return
@@ -82,7 +102,7 @@ class ChatService:
                 reply_markup=main_menu_kb,
             )
 
-        await self.matcher.add_to_queue(user_id, search_filter, priority)
+        await self.start_search(user_id, search_filter, priority)
         return partner_id
 
     async def stop_chat(self, user_id: int) -> int | None:

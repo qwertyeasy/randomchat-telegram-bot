@@ -14,22 +14,31 @@ from app.services.session_manager import SessionManager
 router = Router()
 
 
+@router.message(Command("find"))
+@router.message(F.text == "🔍 Найти чат")
+async def find_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
+    data = await state.get_data()
+    search_filter = data.get("search_filter") or "any"
+    priority = int(data.get("priority", 0))
+
+    service = ChatService(message.bot, redis, db)
+    await service.start_search(message.from_user.id, search_filter, priority)
+
+    await state.clear()
+    await state.update_data(search_filter=search_filter, priority=priority)
+
+
 @router.message(Command("next"))
 @router.message(F.text == "⏭ Следующий")
 async def next_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
     data = await state.get_data()
-    search_filter = data.get("search_filter")
+    search_filter = data.get("search_filter") or "any"
     priority = int(data.get("priority", 0))
-
-    if search_filter is None:
-        search_filter = "any"
-        await state.update_data(search_filter=search_filter)
 
     service = ChatService(message.bot, redis, db)
     await service.next_chat(message.from_user.id, search_filter, priority)
     await state.clear()
     await state.update_data(search_filter=search_filter, priority=priority)
-    await message.answer("Ищем следующего собеседника...", reply_markup=chat_menu_kb)
 
 
 @router.message(Command("stop"))

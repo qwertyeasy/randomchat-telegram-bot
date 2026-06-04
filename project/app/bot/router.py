@@ -10,13 +10,14 @@ from app.bot.handlers.start import router as start_router
 from app.bot.handlers.stop import router as stop_router
 from app.bot.handlers.text import router as text_router
 
+
 router = Router(name=__name__)
 
 router.include_routers(
     start_router,
     help_router,
-    queue_router,
     chat_router,
+    queue_router,
     content_router,
     stop_router,
     chat_settings_router,
