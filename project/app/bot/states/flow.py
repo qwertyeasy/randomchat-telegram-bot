@@ -6,3 +6,6 @@ class StartFlow(StatesGroup):
     gender = State()
     search_filter = State()
     idle = State()
+
+class SearchFilterState(StatesGroup):
+    choice = State()

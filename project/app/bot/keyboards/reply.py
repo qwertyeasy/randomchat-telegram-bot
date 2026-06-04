@@ -3,7 +3,7 @@ from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 main_menu_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🔍 Найти чат")],
-        [KeyboardButton(text="ℹ️ Справка")],
+        [KeyboardButton(text="ℹ️ Справка"), KeyboardButton(text="⚙️ Настройки")],
     ],
     resize_keyboard=True,
 )
@@ -32,6 +32,14 @@ search_filter_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Мужской"), KeyboardButton(text="Женский")],
         [KeyboardButton(text="Не указано")],
+    ],
+    resize_keyboard=True,
+)
+
+chat_settings_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📱 Поделиться контактом", request_contact=True)],
+        [KeyboardButton(text="↩️ Вернуться к чату")],
     ],
     resize_keyboard=True,
 )

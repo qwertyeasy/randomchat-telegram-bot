@@ -7,6 +7,8 @@ from app.bot.handlers.queue import router as queue_router
 from app.bot.handlers.start import router as start_router
 from app.bot.handlers.text import router as text_router
 from app.bot.handlers.stop import router as stop_router
+from app.bot.handlers.chat_settings import router as chat_settings_router
+from app.bot.handlers.settings import router as settings_router
 
 router = Router(name=__name__)
 
@@ -15,7 +17,9 @@ router.include_routers(
     help_router,
     queue_router,
     chat_router,
-    text_router,
     content_router,
     stop_router,
+    chat_settings_router,
+    settings_router,
+    text_router,
 )
