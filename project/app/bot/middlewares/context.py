@@ -1,9 +1,9 @@
-from aiogram import BaseMiddleware
 from typing import Any, Awaitable, Callable
 
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
-from aiogram.types import TelegramObject
 
 
 class ContextMiddleware(BaseMiddleware):

@@ -2,9 +2,9 @@ from aiogram import Bot
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.keyboards.reply import chat_menu_kb, main_menu_kb
 from app.services.matcher import MatcherService
 from app.services.session_manager import SessionManager
-from app.bot.keyboards.reply import main_menu_kb
 
 
 class ChatService:
@@ -61,19 +61,52 @@ class ChatService:
         await self.sessions.close(session_id)
         return session_id
 
-    async def next_chat(self, user_id: int, search_filter: str, priority: int = 0) -> None:
-        await self.stop_chat(user_id)
-        await self.matcher.add_to_queue(user_id, search_filter, priority)
+    async def next_chat(self, user_id: int, search_filter: str, priority: int = 0) -> int | None:
+        session_id = await self.sessions.get_session_id(user_id)
+        partner_id = None
 
-    async def stop_chat(self, user_id: int) -> None:
-        session_id = await self.close_session(user_id)
+        if session_id:
+            partner_id = await self.sessions.get_partner(session_id, user_id)
+            await self.sessions.close(session_id)
+            await self.redis.delete(f"afk:{session_id}")
 
         for flt in ("any", "male", "female"):
             await self.matcher.remove_from_queue(user_id, flt)
+            if partner_id:
+                await self.matcher.remove_from_queue(partner_id, flt)
+
+        if partner_id:
+            await self.bot.send_message(
+                partner_id,
+                "Собеседник перешёл к следующему. Чат завершён.",
+                reply_markup=main_menu_kb,
+            )
+
+        await self.matcher.add_to_queue(user_id, search_filter, priority)
+        return partner_id
+
+    async def stop_chat(self, user_id: int) -> int | None:
+        session_id = await self.sessions.get_session_id(user_id)
+        partner_id = None
 
         if session_id:
+            partner_id = await self.sessions.get_partner(session_id, user_id)
+            await self.sessions.close(session_id)
             await self.redis.delete(f"afk:{session_id}")
 
+        for flt in ("any", "male", "female"):
+            await self.matcher.remove_from_queue(user_id, flt)
+            if partner_id:
+                await self.matcher.remove_from_queue(partner_id, flt)
+
+        if partner_id:
+            await self.bot.send_message(
+                partner_id,
+                "Собеседник вышел. Чат завершён.",
+                reply_markup=main_menu_kb,
+            )
+
+        return partner_id
 
     async def end_chat_for_user(self, user_id: int, reason: str = "Чат завершен") -> None:
         partner_id = await self.redis.get(f"chat:partner:{user_id}")
@@ -95,5 +128,5 @@ class ChatService:
         await self.bot.send_message(
             user_id,
             text,
-            reply_markup=main_menu_kb(),
+            reply_markup=main_menu_kb,
         )

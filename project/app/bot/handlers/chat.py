@@ -1,15 +1,15 @@
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.reply import main_menu_kb
-from app.bot.keyboards.reply import chat_settings_kb
+from app.bot.keyboards.reply import chat_menu_kb, chat_settings_kb, main_menu_kb
 from app.services.chat import ChatService
 from app.services.moderation import ModerationService
 from app.services.session_manager import SessionManager
+
 
 router = Router()
 
@@ -18,13 +18,18 @@ router = Router()
 @router.message(F.text == "⏭ Следующий")
 async def next_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
     data = await state.get_data()
-    search_filter = data.get("search_filter", "any")
+    search_filter = data.get("search_filter")
     priority = int(data.get("priority", 0))
+
+    if search_filter is None:
+        search_filter = "any"
+        await state.update_data(search_filter=search_filter)
 
     service = ChatService(message.bot, redis, db)
     await service.next_chat(message.from_user.id, search_filter, priority)
     await state.clear()
-    await message.answer("Ищем следующего собеседника...")
+    await state.update_data(search_filter=search_filter, priority=priority)
+    await message.answer("Ищем следующего собеседника...", reply_markup=chat_menu_kb)
 
 
 @router.message(Command("stop"))
@@ -64,7 +69,8 @@ async def report(message: Message, redis: Redis, db: AsyncSession) -> None:
 @router.message(F.text == "⚙️ Настройки чата")
 async def chat_settings(message: Message) -> None:
     await message.answer(
-        "Настройки доступа:\nЕсли хотите, можете поделиться контактом.", reply_markup=chat_settings_kb
+        "Настройки доступа:\nЕсли хотите, можете поделиться контактом.",
+        reply_markup=chat_settings_kb,
     )
     await message.delete()
 
@@ -72,5 +78,3 @@ async def chat_settings(message: Message) -> None:
 @router.message(F.contact)
 async def contact_shared(message: Message) -> None:
     await message.answer("Контакт получен.")
-    service = ChatService(message.bot, redis, db)
-    await service.relay(message.from_user.id, message.chat.id, message.message_id)

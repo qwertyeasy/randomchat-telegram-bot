@@ -6,6 +6,7 @@ from aiogram.types import Message
 from app.bot.keyboards.reply import main_menu_kb, search_filter_kb
 from app.bot.states.flow import SearchFilterState
 
+
 router = Router()
 
 
@@ -21,8 +22,16 @@ async def settings_command(message: Message, state: FSMContext) -> None:
 
 @router.message(SearchFilterState.choice, F.text.in_({"Мужской", "Женский", "Не указано"}))
 async def filter_choice(message: Message, state: FSMContext) -> None:
-    await state.update_data(search_filter=message.text)
-    await state.clear()
+    filter_map = {
+        "Мужской": "male",
+        "Женский": "female",
+        "Не указано": "any",
+    }
+
+    search_value = filter_map[message.text]
+    await state.update_data(search_filter=search_value)
+    await state.set_state(None)
+
     await message.answer(
         f"Фильтр поиска сохранён: {message.text}",
         reply_markup=main_menu_kb,
