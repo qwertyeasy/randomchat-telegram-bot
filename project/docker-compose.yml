@@ -9,7 +9,7 @@ services:
     depends_on:
       - postgres
       - redis
-    # restart: unless-stopped
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
@@ -20,15 +20,12 @@ services:
       POSTGRES_PASSWORD: botpassword
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: randompersonbot_redis
-    ports:
-      - "6379:6379"
+
     restart: unless-stopped
 
 volumes:
