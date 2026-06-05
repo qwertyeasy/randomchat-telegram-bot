@@ -13,12 +13,10 @@ class MatchmakingWorker:
         bot: Bot,
         redis: Redis,
         db_factory: async_sessionmaker[AsyncSession],
-        filters: list[str] | None = None,
     ):
         self.bot = bot
         self.redis = redis
         self.db_factory = db_factory
-        self.filters = filters or ["any", "male", "female"]
         self._task: asyncio.Task | None = None
         self._running = False
 
@@ -27,11 +25,12 @@ class MatchmakingWorker:
         while self._running:
             async with self.db_factory() as db:
                 matcher = MatcherService(self.bot, self.redis, db)
-                for search_filter in self.filters:
-                    try:
-                        await matcher.try_match_once(search_filter)
-                    except Exception:
+                try:
+                    # Drain all compatible pairs available this tick.
+                    while await matcher.try_match_once() is not None:
                         pass
+                except Exception:
+                    pass
             await asyncio.sleep(1)
 
     def start(self) -> None:

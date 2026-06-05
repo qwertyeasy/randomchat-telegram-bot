@@ -8,19 +8,29 @@ from app.services.chat import ChatService
 router = Router()
 
 
-@router.message(F.photo)
-async def relay_photo(message: Message, redis: Redis, db: AsyncSession) -> None:
-    service = ChatService(message.bot, redis, db)
-    await service.relay(message.from_user.id, message.chat.id, message.message_id)
+# @router.message(F.photo)
+# async def relay_photo(message: Message, redis: Redis, db: AsyncSession) -> None:
+#     service = ChatService(message.bot, redis, db)
+#     await service.relay(message.from_user.id, message.chat.id, message.message_id)
 
 
-@router.message(F.voice)
-async def relay_voice(message: Message, redis: Redis, db: AsyncSession) -> None:
-    service = ChatService(message.bot, redis, db)
-    await service.relay(message.from_user.id, message.chat.id, message.message_id)
+# @router.message(F.voice)
+# async def relay_voice(message: Message, redis: Redis, db: AsyncSession) -> None:
+#     service = ChatService(message.bot, redis, db)
+#     await service.relay(message.from_user.id, message.chat.id, message.message_id)
 
+
+# @router.message(F.video_note)
+# async def relay_video_note(message: Message, redis: Redis, db: AsyncSession) -> None:
+#     service = ChatService(message.bot, redis, db)
+#     await service.relay(message.from_user.id, message.chat.id, message.message_id)
 
 @router.message(F.video_note)
-async def relay_video_note(message: Message, redis: Redis, db: AsyncSession) -> None:
+@router.message(F.sticker)
+@router.message(F.voice)
+@router.message(F.photo)
+@router.message(F.document)
+async def relay_not_text(message: Message, redis: Redis, db: AsyncSession) -> None:
+    message.animation
     service = ChatService(message.bot, redis, db)
     await service.relay(message.from_user.id, message.chat.id, message.message_id)

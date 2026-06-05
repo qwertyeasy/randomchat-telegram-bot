@@ -23,6 +23,12 @@ class UserRepository:
         self.session.add(user)
         return user
 
+    async def set_search_filter(self, user_id: int, search_filter: str) -> User | None:
+        user = await self.get(user_id)
+        if user:
+            user.search_filter = search_filter
+        return user
+
     async def is_banned(self, user_id: int) -> bool:
         user = await self.get(user_id)
         return bool(user and user.is_banned)

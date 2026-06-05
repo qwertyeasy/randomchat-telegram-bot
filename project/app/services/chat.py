@@ -32,7 +32,7 @@ class ChatService:
         self.matcher = MatcherService(bot, redis, db)
 
     def _is_system_text(self, text: str | None) -> bool:
-        return bool(text) and (text in self.SYSTEM_TEXTS or text.startswith("/"))
+        return bool(text) and (text in self.SYSTEM_TEXTS)
 
     async def get_active_users_count(self) -> int:
         count = 0
@@ -44,9 +44,9 @@ class ChatService:
                 break
         return count
 
-    async def start_search(self, user_id: int, search_filter: str, priority: int = 0) -> None:
+    async def start_search(self, user_id: int) -> None:
         active_users = await self.get_active_users_count()
-        await self.matcher.add_to_queue(user_id, search_filter, priority)
+        await self.matcher.add_to_queue(user_id)
 
         await self.bot.send_message(
             user_id,
@@ -81,7 +81,7 @@ class ChatService:
         await self.sessions.close(session_id)
         return session_id
 
-    async def next_chat(self, user_id: int, search_filter: str, priority: int = 0) -> int | None:
+    async def next_chat(self, user_id: int) -> int | None:
         session_id = await self.sessions.get_session_id(user_id)
         partner_id = None
 
@@ -90,10 +90,9 @@ class ChatService:
             await self.sessions.close(session_id)
             await self.redis.delete(f"afk:{session_id}")
 
-        for flt in ("any", "male", "female"):
-            await self.matcher.remove_from_queue(user_id, flt)
-            if partner_id:
-                await self.matcher.remove_from_queue(partner_id, flt)
+        await self.matcher.remove_from_queue(user_id)
+        if partner_id:
+            await self.matcher.remove_from_queue(partner_id)
 
         if partner_id:
             await self.bot.send_message(
@@ -102,7 +101,7 @@ class ChatService:
                 reply_markup=main_menu_kb,
             )
 
-        await self.start_search(user_id, search_filter, priority)
+        await self.start_search(user_id)
         return partner_id
 
     async def stop_chat(self, user_id: int) -> int | None:
@@ -114,10 +113,9 @@ class ChatService:
             await self.sessions.close(session_id)
             await self.redis.delete(f"afk:{session_id}")
 
-        for flt in ("any", "male", "female"):
-            await self.matcher.remove_from_queue(user_id, flt)
-            if partner_id:
-                await self.matcher.remove_from_queue(partner_id, flt)
+        await self.matcher.remove_from_queue(user_id)
+        if partner_id:
+            await self.matcher.remove_from_queue(partner_id)
 
         if partner_id:
             await self.bot.send_message(

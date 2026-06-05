@@ -17,28 +17,17 @@ router = Router()
 @router.message(Command("find"))
 @router.message(F.text == "🔍 Найти чат")
 async def find_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
-    data = await state.get_data()
-    search_filter = data.get("search_filter") or "any"
-    priority = int(data.get("priority", 0))
-
     service = ChatService(message.bot, redis, db)
-    await service.start_search(message.from_user.id, search_filter, priority)
-
-    await state.clear()
-    await state.update_data(search_filter=search_filter, priority=priority)
+    await service.start_search(message.from_user.id)
+    await state.set_state(None)
 
 
 @router.message(Command("next"))
 @router.message(F.text == "⏭ Следующий")
 async def next_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
-    data = await state.get_data()
-    search_filter = data.get("search_filter") or "any"
-    priority = int(data.get("priority", 0))
-
     service = ChatService(message.bot, redis, db)
-    await service.next_chat(message.from_user.id, search_filter, priority)
-    await state.clear()
-    await state.update_data(search_filter=search_filter, priority=priority)
+    await service.next_chat(message.from_user.id)
+    await state.set_state(None)
 
 
 @router.message(Command("stop"))

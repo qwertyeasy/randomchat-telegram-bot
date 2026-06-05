@@ -5,64 +5,85 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.reply import chat_menu_kb
+from app.db.repositories.users import UserRepository
 from app.services.queue import QueueService
 from app.services.session_manager import SessionManager
 
 
 class MatcherService:
+    LOCK_KEY = "lock:match"
+
     def __init__(self, bot: Bot, redis: Redis, db: AsyncSession):
         self.bot = bot
         self.redis = redis
         self.db = db
         self.queue = QueueService(redis)
         self.sessions = SessionManager(redis, db)
+        self.users = UserRepository(db)
 
-    def _lock_key(self, search_filter: str) -> str:
-        return f"lock:match:{search_filter}"
+    @staticmethod
+    def _accepts(search_filter: str, gender: str | None) -> bool:
+        return search_filter == "any" or search_filter == gender
 
-    async def add_to_queue(self, user_id: int, search_filter: str, priority: int) -> None:
+    def _compatible(self, a: dict, b: dict) -> bool:
+        return self._accepts(a["filter"], b.get("gender")) and self._accepts(
+            b["filter"], a.get("gender")
+        )
+
+    async def add_to_queue(self, user_id: int) -> None:
         if await self.sessions.get_session_id(user_id):
             return
-        await self.queue.remove_user(search_filter, user_id)
-        await self.queue.push(search_filter, user_id, priority, time.time())
 
-    async def remove_from_queue(self, user_id: int, search_filter: str) -> int:
-        return await self.queue.remove_user(search_filter, user_id)
+        # The DB profile is the source of truth for gender / filter / priority.
+        user = await self.users.get(user_id)
+        if user is None:
+            return
 
-    async def try_match_once(self, search_filter: str) -> tuple[int, int] | None:
-        lock = self.redis.lock(self._lock_key(search_filter), timeout=5, blocking_timeout=1)
+        await self.queue.remove_user(user_id)
+        await self.queue.push(user_id, user.gender, user.search_filter, user.priority, time.time())
+
+    async def remove_from_queue(self, user_id: int) -> int:
+        return await self.queue.remove_user(user_id)
+
+    async def try_match_once(self) -> tuple[int, int] | None:
+        lock = self.redis.lock(self.LOCK_KEY, timeout=5, blocking_timeout=1)
         async with lock:
-            items = await self.redis.lrange(f"queue:{search_filter}", 0, -1)
-            if len(items) < 2:
-                return None
+            items = await self.queue.items()
 
-            parsed: list[int] = []
-            for raw in items:
-                item = self.queue._decode(raw)
+            # Drop users that are already in a session and dedupe by user_id,
+            # keeping queue order (FIFO) so longer-waiting users match first.
+            candidates: list[dict] = []
+            seen: set[int] = set()
+            for _, item in items:
                 uid = int(item["user_id"])
-                if await self.sessions.get_session_id(uid) is None and uid not in parsed:
-                    parsed.append(uid)
+                if uid in seen:
+                    continue
+                if await self.sessions.get_session_id(uid) is not None:
+                    continue
+                seen.add(uid)
+                candidates.append(item)
 
-            if len(parsed) < 2:
-                return None
+            # Higher priority first, then earlier timestamp (fairness).
+            candidates.sort(key=lambda c: (-int(c["priority"]), float(c["ts"])))
 
-            user1_id = parsed[0]
-            user2_id = parsed[1]
+            for i, first in enumerate(candidates):
+                for second in candidates[i + 1:]:
+                    if self._compatible(first, second):
+                        return await self._pair(int(first["user_id"]), int(second["user_id"]))
 
-            await self.queue.remove_user(search_filter, user1_id)
-            await self.queue.remove_user(search_filter, user2_id)
+            return None
 
-            await self.sessions.create(user1_id, user2_id)
+    async def _pair(self, user1_id: int, user2_id: int) -> tuple[int, int]:
+        await self.queue.remove_user(user1_id)
+        await self.queue.remove_user(user2_id)
 
+        await self.sessions.create(user1_id, user2_id)
+
+        for uid in (user1_id, user2_id):
             await self.bot.send_message(
-                user1_id,
+                uid,
                 "Собеседник найден. Можете начинать чат.",
                 reply_markup=chat_menu_kb,
             )
-            await self.bot.send_message(
-                user2_id,
-                "Собеседник найден. Можете начинать чат.",
-                reply_markup=chat_menu_kb,
-            )
 
-            return user1_id, user2_id
+        return user1_id, user2_id
