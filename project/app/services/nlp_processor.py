@@ -3,9 +3,12 @@
 Privacy-first: текст обрабатывается в памяти, наружу отдаётся только
 агрегированный NLPResult. Сам текст нигде не сохраняется.
 
-Тяжёлые зависимости (transformers/torch/argostranslate) импортируются ЛЕНИВО
-внутри загрузчиков — модуль импортируется и без них (graceful degradation:
-работает только структурный анализ).
+Тяжёлые зависимости (transformers/torch) импортируются ЛЕНИВО внутри загрузчика —
+модуль импортируется и без них (graceful degradation: только структурный анализ).
+
+Модель — `cointegrated/rubert-tiny2-cedr-emotion-detection`: один мультиметочный
+классификатор эмоций (нативный русский). Из его выдачи берём и emotion_scores,
+и выводим sentiment_score — отдельная sentiment-модель и перевод больше не нужны.
 """
 
 import asyncio
@@ -31,97 +34,55 @@ TOPIC_KEYWORDS: dict[str, list[str]] = {
 
 EMOTION_LABELS = ("joy", "sadness", "anger", "fear")
 
-_SENTIMENT_VALUE = {"POSITIVE": 1.0, "NEUTRAL": 0.0, "NEGATIVE": -1.0}
-
-# Module-level singletons — веса грузятся один раз на процесс.
-_sentiment_model = None
-_sentiment_loaded = False
-_emotion_model = None
-_emotion_loaded = False
+# Module-level singleton — веса грузятся один раз на процесс.
+_model = None
+_model_loaded = False
 
 
-def _get_sentiment_model():
-    global _sentiment_model, _sentiment_loaded
-    if _sentiment_loaded:
-        return _sentiment_model
-    _sentiment_loaded = True
+def _get_model():
+    global _model, _model_loaded
+    if _model_loaded:
+        return _model
+    _model_loaded = True
 
     if not settings.nlp_enabled:
-        _sentiment_model = None
         return None
 
     try:
         from transformers import pipeline
 
-        _sentiment_model = pipeline(
-            "sentiment-analysis",
-            model=settings.nlp_sentiment_model,
-            tokenizer=settings.nlp_sentiment_model,
-        )
-        logger.info("sentiment model loaded: %s", settings.nlp_sentiment_model)
-    except Exception:
-        logger.exception("failed to load sentiment model — degrading to structural-only")
-        _sentiment_model = None
-    return _sentiment_model
-
-
-def _get_emotion_model():
-    global _emotion_model, _emotion_loaded
-    if _emotion_loaded:
-        return _emotion_model
-    _emotion_loaded = True
-
-    # Emotion-модель английская; без перевода её не используем (см. spec).
-    if not settings.nlp_enabled or not settings.nlp_use_translation:
-        _emotion_model = None
-        return None
-
-    try:
-        from transformers import pipeline
-
-        _emotion_model = pipeline(
+        _model = pipeline(
             "text-classification",
-            model="j-hartmann/emotion-english-distilroberta-base",
-            top_k=None,
+            model=settings.nlp_model,
+            top_k=None,  # вернуть ВСЕ метки с вероятностями
+            tokenizer=settings.nlp_model,
         )
-        logger.info("emotion model loaded")
+        logger.info("NLP model loaded: %s", settings.nlp_model)
     except Exception:
-        logger.exception("failed to load emotion model — emotions disabled")
-        _emotion_model = None
-    return _emotion_model
-
-
-def _translate_ru_en(text: str) -> str | None:
-    try:
-        import argostranslate.translate
-
-        return argostranslate.translate.translate(text, "ru", "en")
-    except Exception:
-        logger.exception("ru->en translation unavailable")
-        return None
+        logger.exception("failed to load NLP model — structural-only mode")
+        _model = None
+    return _model
 
 
 @dataclass
 class NLPResult:
-    sentiment_score: float           # [-1, 1]
+    sentiment_score: float            # [-1, 1]
     emotion_scores: dict[str, float]  # joy/sadness/anger/fear -> [0, 1]
     is_question: bool
-    message_length: int              # символы
+    message_length: int               # символы
     word_count: int
-    detected_topics: list[str]       # коды из TOPIC_KEYWORDS (⊂ INTEREST_CODES)
+    detected_topics: list[str]        # коды из TOPIC_KEYWORDS (⊂ INTEREST_CODES)
 
 
 class NLPProcessor:
     @staticmethod
     def warmup() -> None:
-        """Прогрев: грузит синглтоны заранее (вызывается в executor при старте)."""
-        _get_sentiment_model()
-        _get_emotion_model()
+        """Прогрев: грузит синглтон заранее (вызывается в executor при старте)."""
+        _get_model()
 
     async def process(self, text: str) -> NLPResult:
         structural = self._structural(text)
-        sentiment_score = await self._run_sentiment(text)
-        emotion_scores = await self._run_emotion(text)
+        sentiment_score, emotion_scores = await self._run_model(text)
         return NLPResult(
             sentiment_score=sentiment_score,
             emotion_scores=emotion_scores,
@@ -150,45 +111,31 @@ class NLPProcessor:
             "detected_topics": detected_topics,
         }
 
-    # --- B. Sentiment (модель, CPU-bound → executor) ---
+    # --- B+C. Emotion + Sentiment (единая модель, CPU-bound → executor) ---
 
-    async def _run_sentiment(self, text: str) -> float:
-        model = _get_sentiment_model()
+    async def _run_model(self, text: str) -> tuple[float, dict[str, float]]:
+        zero_emotions = {label: 0.0 for label in EMOTION_LABELS}
+
+        model = _get_model()
         if model is None:
-            return 0.0
+            return 0.0, zero_emotions
+
         try:
             loop = asyncio.get_event_loop()
             preds = await loop.run_in_executor(None, model, text)
-            top = preds[0] if isinstance(preds, list) else preds
-            if isinstance(top, list):  # некоторые пайплайны возвращают список списков
-                top = top[0]
-            value = _SENTIMENT_VALUE.get(str(top["label"]).upper(), 0.0)
-            return value * float(top["score"])
-        except Exception:
-            logger.exception("sentiment inference failed")
-            return 0.0
 
-    # --- C. Emotion (англ. модель + опциональный перевод) ---
-
-    async def _run_emotion(self, text: str) -> dict[str, float]:
-        zero = {label: 0.0 for label in EMOTION_LABELS}
-
-        if not settings.nlp_use_translation:
-            return zero
-        model = _get_emotion_model()
-        if model is None:
-            return zero
-
-        loop = asyncio.get_event_loop()
-        en_text = await loop.run_in_executor(None, _translate_ru_en, text)
-        if not en_text:
-            return zero
-
-        try:
-            preds = await loop.run_in_executor(None, model, en_text)
+            # top_k=None → список списков: [[{label, score}, ...]]
             flat = preds[0] if preds and isinstance(preds[0], list) else preds
             scored = {str(item["label"]).lower(): float(item["score"]) for item in flat}
-            return {label: scored.get(label, 0.0) for label in EMOTION_LABELS}
+
+            emotion_scores = {label: scored.get(label, 0.0) for label in EMOTION_LABELS}
+
+            # Sentiment из эмоций: позитив = joy, негатив = sadness+anger+fear.
+            joy = scored.get("joy", 0.0)
+            neg = scored.get("sadness", 0.0) + scored.get("anger", 0.0) + scored.get("fear", 0.0)
+            sentiment_score = max(-1.0, min(1.0, joy - neg * 0.5))
+
+            return sentiment_score, emotion_scores
         except Exception:
-            logger.exception("emotion inference failed")
-            return zero
+            logger.exception("NLP model inference failed")
+            return 0.0, zero_emotions

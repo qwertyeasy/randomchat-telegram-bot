@@ -26,8 +26,11 @@ PostgreSQL + pgvector · SQLAlchemy 2 async · Alembic · Redis · Docker.
 - **Фаза 0–1** (архитектура: bot/services/db, PG+Redis+Docker) — готово.
 - **Фаза 2** (профиль + онбординг, `personality_vector[12]`) — готово.
 - **Фаза 3** (NLP-калибровка профиля по речи, decay `1/sqrt(msg_count+1)`) — готово (этот код):
-  `nlp_processor` + `profile_calibrator`, hook в [text.py](app/bot/handlers/text.py) (fire-and-forget),
-  прогрев моделей в lifespan. Тексты не сохраняются. Деградация без torch/моделей — структурный анализ.
+  `nlp_processor` + `profile_calibrator`, hook в [text.py](app/bot/handlers/text.py) (fire-and-forget).
+  Модель: `cointegrated/rubert-tiny2-cedr-emotion-detection` (~60MB, нативный русский, emotion+sentiment).
+  Семплинг: каждое `nlp_process_every`-е сообщение (Redis-счётчик `nlp:count:{id}`, не msg_count из БД).
+  Семафор: `nlp_max_concurrent=4` параллельных инференса максимум.
+  Тексты не сохраняются. Деградация без torch — структурный анализ.
 - **Фаза 4** (умный матчинг: pgvector HNSW, `cosine * geo_score`, fallback к random при <10) — следующая.
 - **Фаза 5+** (объяснение мэтча/MBTI, feedback loop, метрики) — позже.
 

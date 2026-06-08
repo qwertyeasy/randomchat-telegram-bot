@@ -14,8 +14,11 @@ from app.services.profile_calibrator import ProfileCalibrator
 router = Router()
 logger = logging.getLogger(__name__)
 
-# Strong refs to fire-and-forget tasks, иначе сборщик мусора может их убить.
+# Strong refs to fire-and-forget tasks — иначе GC может убить незавершённые.
 _bg_tasks: set[asyncio.Task] = set()
+
+# Потолок одновременных torch-инференсов (module-level, один на процесс).
+_NLP_SEMAPHORE = asyncio.Semaphore(settings.nlp_max_concurrent)
 
 
 @router.message(F.text)
@@ -48,17 +51,22 @@ async def relay_text(message: Message, redis: Redis, db: AsyncSession) -> None:
         text=text,
     )
 
-    # NLP-калибровка профиля — fire and forget, не блокируем чат.
+    # NLP-калибровка профиля — fire and forget, чат не блокируется.
+    # Семплинг: обрабатываем каждое N-е сообщение пользователя. Счётчик ведём в Redis
+    # (атомарный INCR на КАЖДОЕ сообщение). На db.msg_count гейт ставить нельзя —
+    # он растёт только при фактической калибровке, поэтому % N застрял бы после первого раза.
     if text and settings.nlp_enabled:
-        task = asyncio.create_task(_calibrate_profile(message.from_user.id, text))
-        _bg_tasks.add(task)
-        task.add_done_callback(_bg_tasks.discard)
+        seen = await redis.incr(f"nlp:count:{message.from_user.id}")
+        if seen % settings.nlp_process_every == 0:
+            task = asyncio.create_task(_calibrate_profile(message.from_user.id, text))
+            _bg_tasks.add(task)
+            task.add_done_callback(_bg_tasks.discard)
 
 
 async def _calibrate_profile(user_id: int, text: str) -> None:
-    try:
-        calibrator = ProfileCalibrator(session_maker)
-        await calibrator.calibrate(user_id, text)
-    except Exception:
-        # NLP никогда не должен ронять чат.
-        logger.exception("profile calibration failed for user %d", user_id)
+    async with _NLP_SEMAPHORE:
+        try:
+            calibrator = ProfileCalibrator(session_maker)
+            await calibrator.calibrate(user_id, text)
+        except Exception:
+            logger.exception("profile calibration failed for user %d", user_id)

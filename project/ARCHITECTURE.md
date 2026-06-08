@@ -60,6 +60,7 @@ handlers (aiogram)  →  services (бизнес-логика)  →  repositories
 | `user:{user_id}:session` | string | — | обратный индекс user → активная сессия |
 | `afk:{session_id}` | string | 120с | маркер активности диалога; cleanup продлевает |
 | `rate_limit:{user_id}` | string(incr) | 60с | окно лимита (≤5 действий/мин) |
+| `nlp:count:{user_id}` | string(incr) | — | счётчик всех сообщений пользователя для семплинга NLP (каждое N-е) |
 
 Legacy-ключи `chat:partner:*`, `chat:state:*`, `chat:room:*` упоминаются только в
 `ChatService.end_chat_for_user` — путь похоже не используется в текущем флоу (кандидат на удаление).
@@ -115,28 +116,58 @@ Q4 — мультивыбор тегов с togg‑галочками). Отве
 
 Каждое текстовое сообщение в чате дообучает профиль автора — **privacy-first, текст не хранится**.
 
-Поток: [text.py](app/bot/handlers/text.py) после `relay()` запускает `_calibrate_profile`
-через `asyncio.create_task` (**fire-and-forget**, чат не ждёт; ссылки на таски держатся в
-`_bg_tasks`, чтобы GC их не убил; исключения логируются, не роняют чат).
+### Поток обработки
+
+[text.py](app/bot/handlers/text.py) после `relay()`:
+1. **Семплинг**: атомарный `INCR nlp:count:{user_id}` в Redis; NLP запускается только если
+   `seen % nlp_process_every == 0` (дефолт: каждое 3-е сообщение).
+   **Важно**: для гейта используется Redis-счётчик, а НЕ `user_profiles.msg_count` —
+   потому что `msg_count` растёт только при фактической калибровке, и деление на N зависало бы.
+2. **Семафор**: `_NLP_SEMAPHORE = asyncio.Semaphore(nlp_max_concurrent)` (дефолт: 4) —
+   потолок параллельных torch-инференсов на процесс. Остальные задачи ждут в очереди.
+3. **Fire-and-forget**: `asyncio.create_task(_calibrate_profile(...))`. Ссылки держатся в
+   `_bg_tasks` (защита от GC). Исключения логируются, не роняют чат.
+
+### Модель
+
+`cointegrated/rubert-tiny2-cedr-emotion-detection` — **одна модель** вместо двух:
+- База rubert-tiny2: ~60MB, 30–80ms на CPU (vs ~450MB / 300–500ms у rubert-base).
+- Дообучена на русском CEDR датасете, нативный русский (перевод не нужен).
+- Выдаёт вероятности по меткам: `joy, sadness, anger, fear, surprise, neutral`.
+- **Sentiment** выводится из эмоций: `joy_p - (sadness_p + anger_p + fear_p) * 0.5`, `∈ [-1,1]`.
+- **Emotion scores** — напрямую из выдачи модели.
+
+Если нужна только тональность с более высокой точностью — заменить в конфиге на
+`blanchefort/rubert-base-cased-sentiment-rurewiews` (3-class, ~450MB, только sentiment).
+
+### NLPProcessor
 
 [services/nlp_processor.py](app/services/nlp_processor.py) `NLPProcessor.process(text) -> NLPResult`:
 - **A. Структурный** (без моделей): `is_question` (`?`/вопросительные слова), `word_count`,
   `message_length`, `detected_topics` (подстрочный матч по `TOPIC_KEYWORDS`, коды ⊂ `INTEREST_CODES`).
-- **B. Sentiment** (модель `blanchefort/rubert-...`): `score ∈ [-1,1]` = label_value × вероятность.
-- **C. Emotion** (англ. модель + опц. перевод `argostranslate`): по умолчанию `nlp_use_translation=False`
-  → эмоции нули. Инференс — в thread pool (`run_in_executor`, CPU-bound).
-- Модели — module-level синглтоны, **lazy-load**; при отсутствии torch/моделей — graceful degradation
-  (только структурный анализ). Прогрев в `lifespan` (`NLPProcessor.warmup` в executor).
+- **B+C. Emotion+Sentiment** (единая модель `nlp_model`): `top_k=None` → все метки с вероятностями;
+  sentiment_score и emotion_scores выводятся из одного прохода.
+- Singleton, **lazy-load**; при отсутствии torch/моделей — graceful degradation (только структурный анализ).
+- Прогрев в `lifespan` (`NLPProcessor.warmup` в executor).
+
+### ProfileCalibrator
 
 [services/profile_calibrator.py](app/services/profile_calibrator.py) `calibrate(user_id, text)`:
-- `< nlp_min_message_length` (5) символов → skip;
+- `< nlp_min_message_length` (5 символов) → skip;
 - открывает **свою** DB-сессию через `session_maker` (middleware-сессия уже закрыта);
 - `_build_delta(NLPResult)` → дельта по `DIMENSIONS`; обновление с затуханием
   `new = clamp(old + delta / sqrt(msg_count+1))` (первые сообщения двигают сильно, после ~100 — почти нет);
 - пишет `update_vector` + инкремент `msg_count` (в `user_profiles` и `users`) + `add_tags`, один `commit`.
 
-Настройки в [config.py](app/core/config.py): `nlp_enabled`, `nlp_use_translation`,
-`nlp_min_message_length`, `nlp_sentiment_model`. Зависимости: `transformers`, `torch`, `sentencepiece`.
+### Настройки и нагрузка
+
+[config.py](app/core/config.py): `nlp_enabled`, `nlp_model`, `nlp_min_message_length`,
+`nlp_max_concurrent` (семафор), `nlp_process_every` (семплинг), `nlp_use_translation`.
+
+При 200 одновременных чатах (~40 msg/sec): семплинг ÷3 → ~13 NLP-задач/сек;
+rubert-tiny2 ~50ms → семафор(4) справляется с запасом на 1–2 CPU ядрах.
+
+Зависимости: `transformers`, `torch` (CPU-only сборка), `sentencepiece`.
 Тест маппинга дельты — `tests/test_profile_calibrator.py` (без реальных моделей).
 
 ## 8. Конвенции и подводные камни
