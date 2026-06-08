@@ -11,6 +11,7 @@ from app.bot.router import router
 from app.core.config import settings
 from app.services.cleanup import CleanupService
 from app.services.matchmaking_worker import MatchmakingWorker
+from app.services.nlp_processor import NLPProcessor
 
 engine = create_async_engine(settings.database_url, echo=False)
 session_maker = async_sessionmaker(engine, expire_on_commit=False)
@@ -39,6 +40,11 @@ async def lifespan(app: FastAPI):
     cleanup.start()
     matchmaking.start()
     polling_task = asyncio.create_task(polling_runner())
+
+    # Прогрев NLP-моделей заранее, чтобы первый пользователь не ждал загрузку весов.
+    # run_in_executor возвращает Future (не корутину) — НЕ оборачивать в create_task.
+    if settings.nlp_enabled:
+        asyncio.get_event_loop().run_in_executor(None, NLPProcessor.warmup)
 
     try:
         yield

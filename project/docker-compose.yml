@@ -7,6 +7,8 @@ services:
     depends_on:
       - postgres
       - redis
+    volumes:
+      - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
 
   postgres:
@@ -30,3 +32,4 @@ services:
 
 volumes:
   pgdata:
+  hf_cache:

@@ -24,10 +24,11 @@ PostgreSQL + pgvector · SQLAlchemy 2 async · Alembic · Redis · Docker.
 Статус:
 
 - **Фаза 0–1** (архитектура: bot/services/db, PG+Redis+Docker) — готово.
-- **Фаза 2** (профиль + онбординг, `personality_vector[12]`) — готово (этот код).
-- **Фаза 3** (NLP-калибровка профиля по речи, decay `1/sqrt(msg_count+1)`) — следующая;
-  задел уже есть: `ProfileRepository.update_vector`/`add_tags`, `users.msg_count`, `UserProfile.msg_count`.
-- **Фаза 4** (умный матчинг: pgvector HNSW, `cosine * geo_score`, fallback к random при <10) — далее.
+- **Фаза 2** (профиль + онбординг, `personality_vector[12]`) — готово.
+- **Фаза 3** (NLP-калибровка профиля по речи, decay `1/sqrt(msg_count+1)`) — готово (этот код):
+  `nlp_processor` + `profile_calibrator`, hook в [text.py](app/bot/handlers/text.py) (fire-and-forget),
+  прогрев моделей в lifespan. Тексты не сохраняются. Деградация без torch/моделей — структурный анализ.
+- **Фаза 4** (умный матчинг: pgvector HNSW, `cosine * geo_score`, fallback к random при <10) — следующая.
 - **Фаза 5+** (объяснение мэтча/MBTI, feedback loop, метрики) — позже.
 
 ROADMAP — план; **фактическое состояние** кода описывает [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -55,7 +56,8 @@ app/
 
 Сервисы: `matcher` (подбор пар), `queue` (очередь Redis), `chat` (релей/next/stop), `session_manager`
 (жизненный цикл сессии Redis+PG), `matchmaking_worker` (фон, раз/сек), `cleanup` (afk-ключи),
-`onboarding` (скоринг профиля), `moderation` (жалобы/баны), `rate_limit`.
+`onboarding` (скоринг профиля), `nlp_processor` (фичи из текста), `profile_calibrator`
+(онлайн-обновление вектора по речи), `moderation` (жалобы/баны), `rate_limit`.
 
 ## Критические инварианты (НЕ нарушать)
 

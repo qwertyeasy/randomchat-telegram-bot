@@ -111,8 +111,33 @@ Q4 — мультивыбор тегов с togg‑галочками). Отве
 - `build_mbti(answers)` → `[E/I, S/N, T/F, J/P]` (positive = E/S/T/J).
 - `ProfileRepository.create(user_id, vector, interest_tags=tags, mbti_scores=mbti)`.
 
-`update_vector` / `add_tags` / `users.msg_count` — задел под Фазу 3 (онлайн-дообучение профиля
-по ходу общения); пока не вызываются из релея.
+## 7.5 NLP-калибровка профиля (Фаза 3)
+
+Каждое текстовое сообщение в чате дообучает профиль автора — **privacy-first, текст не хранится**.
+
+Поток: [text.py](app/bot/handlers/text.py) после `relay()` запускает `_calibrate_profile`
+через `asyncio.create_task` (**fire-and-forget**, чат не ждёт; ссылки на таски держатся в
+`_bg_tasks`, чтобы GC их не убил; исключения логируются, не роняют чат).
+
+[services/nlp_processor.py](app/services/nlp_processor.py) `NLPProcessor.process(text) -> NLPResult`:
+- **A. Структурный** (без моделей): `is_question` (`?`/вопросительные слова), `word_count`,
+  `message_length`, `detected_topics` (подстрочный матч по `TOPIC_KEYWORDS`, коды ⊂ `INTEREST_CODES`).
+- **B. Sentiment** (модель `blanchefort/rubert-...`): `score ∈ [-1,1]` = label_value × вероятность.
+- **C. Emotion** (англ. модель + опц. перевод `argostranslate`): по умолчанию `nlp_use_translation=False`
+  → эмоции нули. Инференс — в thread pool (`run_in_executor`, CPU-bound).
+- Модели — module-level синглтоны, **lazy-load**; при отсутствии torch/моделей — graceful degradation
+  (только структурный анализ). Прогрев в `lifespan` (`NLPProcessor.warmup` в executor).
+
+[services/profile_calibrator.py](app/services/profile_calibrator.py) `calibrate(user_id, text)`:
+- `< nlp_min_message_length` (5) символов → skip;
+- открывает **свою** DB-сессию через `session_maker` (middleware-сессия уже закрыта);
+- `_build_delta(NLPResult)` → дельта по `DIMENSIONS`; обновление с затуханием
+  `new = clamp(old + delta / sqrt(msg_count+1))` (первые сообщения двигают сильно, после ~100 — почти нет);
+- пишет `update_vector` + инкремент `msg_count` (в `user_profiles` и `users`) + `add_tags`, один `commit`.
+
+Настройки в [config.py](app/core/config.py): `nlp_enabled`, `nlp_use_translation`,
+`nlp_min_message_length`, `nlp_sentiment_model`. Зависимости: `transformers`, `torch`, `sentencepiece`.
+Тест маппинга дельты — `tests/test_profile_calibrator.py` (без реальных моделей).
 
 ## 8. Конвенции и подводные камни
 
