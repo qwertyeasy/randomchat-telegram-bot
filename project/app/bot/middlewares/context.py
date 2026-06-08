@@ -23,10 +23,11 @@ class ContextMiddleware(BaseMiddleware):
             data["redis"] = self.redis
             data["db"] = db
 
-            from_user = getattr(event, "from_user", None)
-            if from_user:
-                user_id = from_user.id
-                await self.redis.set(f"online:{user_id}", "1", ex=self.ONLINE_TTL)
+            # `event` here is an Update, which has no `from_user`; aiogram exposes
+            # the actual sender via `event_from_user` in the middleware data.
+            user = data.get("event_from_user") or getattr(event, "from_user", None)
+            if user is not None:
+                await self.redis.set(f"online:{user.id}", "1", ex=self.ONLINE_TTL)
 
             result = await handler(event, data)
             await db.commit()

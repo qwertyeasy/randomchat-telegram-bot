@@ -34,18 +34,20 @@ class ChatService:
     def _is_system_text(self, text: str | None) -> bool:
         return bool(text) and (text in self.SYSTEM_TEXTS)
 
-    async def get_active_users_count(self) -> int:
-        count = 0
+    async def get_active_users_count(self, exclude_user_id: int | None = None) -> int:
+        online: set[str] = set()
         cursor = 0
         while True:
             cursor, keys = await self.redis.scan(cursor=cursor, match="online:*", count=200)
-            count += len(keys)
+            online.update(keys)
             if cursor == 0:
                 break
-        return count
+        if exclude_user_id is not None:
+            online.discard(f"online:{exclude_user_id}")
+        return len(online)
 
     async def start_search(self, user_id: int) -> None:
-        active_users = await self.get_active_users_count()
+        active_users = await self.get_active_users_count(exclude_user_id=user_id)
         await self.matcher.add_to_queue(user_id)
 
         await self.bot.send_message(
