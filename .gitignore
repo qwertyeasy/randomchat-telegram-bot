@@ -1,4 +1,4 @@
 .venv/
 project/.env
 .vscode/
-update-project.sh
+project/update-project.sh

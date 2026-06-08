@@ -13,7 +13,8 @@ services:
     image: pgvector/pgvector:pg16
     container_name: randompersonbot_postgres
     # временно для тестов
-    ports: 5432:5432
+    ports: 
+      - "5432:5432"
     environment:
       POSTGRES_DB: botdb
       POSTGRES_USER: botuser
