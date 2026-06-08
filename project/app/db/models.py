@@ -2,7 +2,8 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import ARRAY, BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -36,6 +37,7 @@ class User(Base):
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     consent_given: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    msg_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -68,3 +70,24 @@ class Block(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     banned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    # Aggregated recommendation profile. Holds ONLY derived signals —
+    # никаких исходных текстов сообщений здесь не хранится.
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.user_id"), primary_key=True
+    )
+    # [energy, thinking, tone, depth, humor, joy, sadness, anger, fear, tempo, curiosity, expressiveness]
+    personality_vector: Mapped[list[float]] = mapped_column(Vector(12), nullable=False)
+    interest_tags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # MBTI axes: [E/I, S/N, T/F, J/P]
+    mbti_scores: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
+    msg_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )

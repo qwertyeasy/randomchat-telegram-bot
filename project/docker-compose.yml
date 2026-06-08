@@ -5,13 +5,13 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
+      - pgvector
       - redis
     restart: unless-stopped
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: randompersonbot_postgres
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: randompersonbot_pgvector
     environment:
       POSTGRES_DB: botdb
       POSTGRES_USER: botuser

@@ -5,9 +5,11 @@ from aiogram.types import Message
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.handlers.onboarding import start_onboarding
 from app.bot.keyboards.reply import consent_kb, gender_kb, search_filter_kb, main_menu_kb
 from app.bot.states.flow import StartFlow
 from app.db.models import User
+from app.db.repositories.profiles import ProfileRepository
 from app.db.repositories.users import UserRepository
 
 
@@ -77,5 +79,11 @@ async def search_filter(message: Message, state: FSMContext, db: AsyncSession) -
     await db.commit()
 
     await state.update_data(search_filter=search_value, priority=0)
-    await state.set_state(StartFlow.idle)
-    await message.answer("Готово. Используй поиск чата.", reply_markup=main_menu_kb)
+
+    # Phase 2: first-time users go through the recommendation onboarding.
+    profiles = ProfileRepository(db)
+    if await profiles.get(message.from_user.id) is None:
+        await start_onboarding(message, state)
+    else:
+        await state.set_state(StartFlow.idle)
+        await message.answer("Готово. Используй поиск чата.", reply_markup=main_menu_kb)
