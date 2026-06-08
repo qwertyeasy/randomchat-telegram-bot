@@ -64,3 +64,11 @@ class SessionManager:
                     await self.redis.delete(f"user:{uid}:session")
 
         await self.redis.delete(f"session:{session_id}")
+
+        # Mark the durable PG record as closed — раньше строки висели в статусе
+        # 'active' навсегда, т.к. close() трогал только Redis.
+        try:
+            sid = uuid.UUID(session_id)
+        except (ValueError, TypeError):
+            return
+        await self.sessions.close(sid, datetime.utcnow())

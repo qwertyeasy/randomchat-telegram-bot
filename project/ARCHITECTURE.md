@@ -34,7 +34,11 @@ handlers (aiogram)  →  services (бизнес-логика)  →  repositories
 - **users**: `user_id` (PK, BigInteger = Telegram id), `gender` (male/female), `search_filter`
   (male/female/any), `priority`, `is_banned`, `consent_given`, `msg_count`, `created_at`.
 - **sessions**: `session_id` (UUID), `user1_id`, `user2_id`, `status` (waiting/active/closed),
-  `created_at`, `closed_at`.
+  `created_at`, `closed_at`. **Это долговременная история диалогов**, не дубль Redis:
+  Redis держит *живое* состояние активной сессии, а строка в PG — постоянная запись факта
+  (на неё ссылается `reports.session_id`; нужна для feedback/метрик Фаз 6–7).
+  `SessionManager.create` пишет строку `active`+commit; `SessionManager.close` помечает её
+  `closed`+`closed_at` (И чистит Redis). Раньше close трогал только Redis → строки висели `active`.
 - **reports**: `report_id`, `session_id`, `reporter_id`, `target_id`, `reason`, `attached_message`, `created_at`.
 - **blocks**: `user_id` (PK), `reason`, `banned_at`.
 - **user_profiles** (Фаза 2): `user_id` (PK, FK→users), `personality_vector VECTOR(12)`,
