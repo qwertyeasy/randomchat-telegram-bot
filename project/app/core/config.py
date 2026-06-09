@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     nlp_max_concurrent: int = 4       # макс. параллельных torch-инференсов (семафор)
     nlp_process_every: int = 3        # обрабатывать каждое N-е сообщение пользователя
 
+    # Phase 4 — умный матчинг
+    match_min_queue_smart: int = 10   # минимум совместимых кандидатов для pgvector (иначе fallback к random)
+    match_geo_radius_km: float = 100.0  # радиус R в формуле geo-веса exp(-dist/R)
+    match_top_k: int = 3              # из скольких лучших по score выбирать случайно
+    match_geo_neutral_weight: float = 0.5  # вес при отсутствии координат (нейтрально, ≈ R*ln2 км)
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

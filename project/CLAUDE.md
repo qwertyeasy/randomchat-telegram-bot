@@ -31,8 +31,12 @@ PostgreSQL + pgvector · SQLAlchemy 2 async · Alembic · Redis · Docker.
   Семплинг: каждое `nlp_process_every`-е сообщение (Redis-счётчик `nlp:count:{id}`, не msg_count из БД).
   Семафор: `nlp_max_concurrent=4` параллельных инференса максимум.
   Тексты не сохраняются. Деградация без torch — структурный анализ.
-- **Фаза 4** (умный матчинг: pgvector HNSW, `cosine * geo_score`, fallback к random при <10) — следующая.
-- **Фаза 5+** (объяснение мэтча/MBTI, feedback loop, метрики) — позже.
+- **Фаза 4** (умный матчинг) — готово (этот код): pgvector HNSW (`0003_hnsw_index`),
+  `ProfileRepository.find_best_matches` (cosine `<=>` × geo-вес `exp(-dist/R)`), выбор random из top-k.
+  Включается при ≥`match_min_queue_smart` совместимых, иначе fallback к first-compatible.
+  Гео — опционально (кнопка `request_location` в настройках); нет координат → нейтральный
+  geo-вес `match_geo_neutral_weight` (0.5), не лучший и не худший.
+- **Фаза 5+** (объяснение мэтча/MBTI, feedback loop, метрики) — следующая.
 
 ROADMAP — план; **фактическое состояние** кода описывает [ARCHITECTURE.md](ARCHITECTURE.md).
 Реализация может опережать план или отклоняться (напр. `pgvector VECTOR(12)` введён уже в Фазе 2,

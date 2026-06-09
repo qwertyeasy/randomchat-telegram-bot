@@ -46,8 +46,10 @@ handlers (aiogram)  →  services (бизнес-логика)  →  repositories
   `msg_count`, `updated_at`.
 
 Миграции: [alembic/versions/](alembic/versions/) — `0001_init`, `0002_user_profiles`
-(делает `CREATE EXTENSION IF NOT EXISTS vector`). `alembic/env.py` берёт URL из `settings`,
-`target_metadata = Base.metadata`, работает в async-режиме.
+(делает `CREATE EXTENSION IF NOT EXISTS vector`), `0003_hnsw_index` (HNSW-индекс
+`vector_cosine_ops` на `personality_vector` для Фазы 4). `alembic/env.py` берёт URL из `settings`,
+`target_metadata = Base.metadata`, работает в async-режиме. `latitude/longitude` заполняются
+опционально через кнопку геолокации в настройках ([settings.py](app/bot/handlers/settings.py), `F.location`).
 
 ## 4. Схема ключей Redis
 
@@ -74,9 +76,21 @@ Legacy-ключи `chat:partner:*`, `chat:state:*`, `chat:room:*` упомина
 пока есть пары. `try_match_once()` под `lock:match`:
 1. читает все элементы очереди, отбрасывает уже-в-сессии и дубли;
 2. сортирует по `(-priority, ts)` (приоритет, затем FIFO/честность);
-3. ищет первую **взаимно совместимую** пару:
+3. для первого кандидата собирает **взаимно совместимых** по полу (hard-фильтр обязателен):
    `_accepts(filter, gender) = filter=="any" or filter==gender`, нужно с обеих сторон;
-4. создаёт сессию, удаляет обоих из очереди, шлёт «Собеседник найден».
+4. **умный матчинг (Фаза 4)**: если совместимых ≥ `match_min_queue_smart` (10) и у первого есть
+   `personality_vector` → `ProfileRepository.find_best_matches` ранжирует кандидатов по
+   `combined = cosine_similarity(<=>) × geo_weight`, где `geo_weight = exp(-haversine_km / R)`
+   (`R = match_geo_radius_km`); из top-`match_top_k` берётся **random** (снижает детерминизм).
+   Иначе/при пустом результате — **fallback** на первого совместимого (как было до Фазы 4);
+5. создаёт сессию, удаляет обоих из очереди, шлёт «Собеседник найден».
+
+Гео опционально: нет координат у кого-либо → **нейтральный** вес `match_geo_neutral_weight`
+(дефолт `0.5`), эквивалент «средней дистанции» ≈ `R·ln(1/0.5)` ≈ 69 км при R=100. Следствие:
+близкий залокейченный кандидат (вес > 0.5) обходит безгео-юзера, а далёкий (вес < 0.5) — проигрывает
+ему. Если у *самого ищущего* нет координат — вес одинаков для всех кандидатов, ранжирование
+сводится к чистому cosine. HNSW-индекс (`0003`) даёт приближённый kNN по `<=>`; точность регулируется
+`ef_construction`/`m`.
 
 Почему одна очередь, а не `queue:{filter}`: при раздельных очередях совместимые люди из разных
 корзин (Ж-хочет-М в одной, М-хочет-Ж в другой) никогда бы не встретились.

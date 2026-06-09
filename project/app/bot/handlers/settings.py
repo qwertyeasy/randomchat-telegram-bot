@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.reply import main_menu_kb, search_filter_kb
 from app.bot.states.flow import SearchFilterState
+from app.db.repositories.profiles import ProfileRepository
 from app.db.repositories.users import UserRepository
 
 
@@ -44,6 +45,34 @@ async def filter_choice(message: Message, state: FSMContext, db: AsyncSession) -
     await state.set_state(None)
     await message.answer(
         f"Фильтр поиска сохранён: {message.text}",
+        reply_markup=main_menu_kb,
+    )
+
+
+@router.message(F.location)
+async def save_location(message: Message, state: FSMContext, db: AsyncSession) -> None:
+    """Сохраняет геолокацию пользователя в профиль (опционально, по кнопке)."""
+    if message.location is None:
+        return
+
+    profiles = ProfileRepository(db)
+    if await profiles.get(message.from_user.id) is None:
+        await state.set_state(None)
+        await message.answer(
+            "Сначала завершите настройку профиля через /start.",
+            reply_markup=main_menu_kb,
+        )
+        return
+
+    await profiles.update_location(
+        message.from_user.id,
+        message.location.latitude,
+        message.location.longitude,
+    )
+    await state.set_state(None)
+    # commit делает middleware
+    await message.answer(
+        "📍 Геолокация сохранена. Теперь алгоритм учитывает близость собеседника.",
         reply_markup=main_menu_kb,
     )
 

@@ -32,6 +32,7 @@ search_filter_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Мужской"), KeyboardButton(text="Женский")],
         [KeyboardButton(text="Не указано")],
+        [KeyboardButton(text="📍 Поделиться геолокацией", request_location=True)],
     ],
     resize_keyboard=True,
 )
