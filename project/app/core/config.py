@@ -25,6 +25,17 @@ class Settings(BaseSettings):
     match_top_k: int = 3              # из скольких лучших по score выбирать случайно
     match_geo_neutral_weight: float = 0.5  # вес при отсутствии координат (нейтрально, ≈ R*ln2 км)
 
+    # Phase 5 — карточка совместимости
+    match_explain_enabled: bool = True            # глобальный выключатель карточки
+    match_explain_cache_ttl: int = 3600           # TTL ключа explanation:{session_id} в Redis
+    # LLM-объяснение (по умолчанию выключено — карточка содержит только расчёты и теги)
+    match_explain_llm_enabled: bool = False       # включить живой текст от ИИ
+    match_explain_llm_provider: str = "github"  # "anthropic" | "openai" | "github"
+
+    anthropic_api_key: str = ""            # ключ Anthropic (если provider="anthropic")
+    openai_api_key: str = ""               # ключ OpenAI   (если provider="openai")
+    github_token: str = ""                 # GitHub Personal Access Token (classic, без доп. scopes)
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

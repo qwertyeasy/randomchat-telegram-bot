@@ -36,7 +36,13 @@ PostgreSQL + pgvector · SQLAlchemy 2 async · Alembic · Redis · Docker.
   Включается при ≥`match_min_queue_smart` совместимых, иначе fallback к first-compatible.
   Гео — опционально (кнопка `request_location` в настройках); нет координат → нейтральный
   geo-вес `match_geo_neutral_weight` (0.5), не лучший и не худший.
-- **Фаза 5+** (объяснение мэтча/MBTI, feedback loop, метрики) — следующая.
+- **Фаза 5** (объяснение мэтча) — готово (этот код): `MatchExplainer`, карточка (%, MBTI, теги, Haiku-текст),
+  fire-and-forget из `_pair()`, кэш `explanation:{session_id}` в Redis TTL 3600с.
+  По умолчанию (`match_explain_llm_enabled=false`) — только расчёты и теги, без LLM.
+  LLM опционален: `match_explain_llm_provider` = "anthropic" | "openai" | "github";
+  ключи `anthropic_api_key` / `openai_api_key` / `github_token` задаются в `.env`.
+  GitHub Models — бесплатно с любым GitHub-аккаунтом, OpenAI-совместимый API;
+- **Фаза 6+** (feedback loop, матрица совместимости, метрики) — следующая.
 
 ROADMAP — план; **фактическое состояние** кода описывает [ARCHITECTURE.md](ARCHITECTURE.md).
 Реализация может опережать план или отклоняться (напр. `pgvector VECTOR(12)` введён уже в Фазе 2,

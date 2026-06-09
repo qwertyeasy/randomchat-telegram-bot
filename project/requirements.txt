@@ -10,3 +10,5 @@ alembic
 transformers>=4.40.0
 torch>=2.0.0
 sentencepiece
+anthropic>=0.25.0
+openai>=1.0.0

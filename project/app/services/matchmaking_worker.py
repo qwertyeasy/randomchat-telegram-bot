@@ -24,7 +24,7 @@ class MatchmakingWorker:
         self._running = True
         while self._running:
             async with self.db_factory() as db:
-                matcher = MatcherService(self.bot, self.redis, db)
+                matcher = MatcherService(self.bot, self.redis, db, session_maker=self.db_factory)
                 try:
                     # Drain all compatible pairs available this tick.
                     while await matcher.try_match_once() is not None:

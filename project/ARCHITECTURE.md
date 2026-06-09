@@ -63,6 +63,8 @@ handlers (aiogram)  →  services (бизнес-логика)  →  repositories
 | `afk:{session_id}` | string | 120с | маркер активности диалога; cleanup продлевает |
 | `rate_limit:{user_id}` | string(incr) | 60с | окно лимита (≤5 действий/мин) |
 | `nlp:count:{user_id}` | string(incr) | — | счётчик всех сообщений пользователя для семплинга NLP (каждое N-е) |
+| `explanation:{session_id}` | string | 3600с | кэш карточки совместимости (Фаза 5) |
+| `explanation:{session_id}` | string | `match_explain_cache_ttl` (3600с) | кэш карточки совместимости (Фаза 5): %, MBTI, теги + опц. LLM-текст |
 
 Legacy-ключи `chat:partner:*`, `chat:state:*`, `chat:room:*` упоминаются только в
 `ChatService.end_chat_for_user` — путь похоже не используется в текущем флоу (кандидат на удаление).
@@ -187,6 +189,23 @@ rubert-tiny2 ~50ms → семафор(4) справляется с запасо�
 
 Зависимости: `transformers`, `torch` (CPU-only сборка), `sentencepiece`.
 Тест маппинга дельты — `tests/test_profile_calibrator.py` (без реальных моделей).
+
+## 7.6 Карточка совместимости (Фаза 5)
+
+После матча `MatcherService._pair` шлёт обоим карточку — **fire-and-forget**, из агрегатов
+`user_profiles`, без исходных текстов. [services/match_explainer.py](app/services/match_explainer.py)
+`MatchExplainer.build_and_send`:
+- грузит оба профиля в **своей** сессии (`session_maker`, т.к. таск переживает сессию воркера);
+- считает `%` = cosine_sim(v1,v2)→[0,100], MBTI каждого (из `mbti_scores`), общие `interest_tags`;
+- кэширует готовую карточку в `explanation:{session_id}` (TTL `match_explain_cache_ttl`);
+- по умолчанию (`match_explain_llm_enabled=false`) — только эти расчёты.
+
+LLM-текст (2–3 предложения) опционален: `match_explain_llm_provider` = `anthropic`
+(Haiku) / `openai` (gpt-4o-mini), ключ из `.env`; промпт получает только обезличенные
+топ-черты/теги/%. Любая ошибка LLM → карточка всё равно уходит со статистикой (текст пустой).
+
+`session_maker` прокидывается в `MatcherService` **только из воркера**; `ChatService` создаёт
+matcher без него и `_pair` не вызывает, поэтому карточка не дублируется.
 
 ## 8. Конвенции и подводные камни
 

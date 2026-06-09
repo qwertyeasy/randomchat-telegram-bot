@@ -1,25 +1,38 @@
+import asyncio
+import logging
 import random
 import time
 
 from aiogram import Bot
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.keyboards.reply import chat_menu_kb
 from app.core.config import settings
 from app.db.repositories.profiles import ProfileRepository
 from app.db.repositories.users import UserRepository
+from app.services.match_explainer import MatchExplainer
 from app.services.queue import QueueService
 from app.services.session_manager import SessionManager
+
+logger = logging.getLogger(__name__)
+_bg_tasks: set[asyncio.Task] = set()
 
 
 class MatcherService:
     LOCK_KEY = "lock:match"
 
-    def __init__(self, bot: Bot, redis: Redis, db: AsyncSession):
+    def __init__(
+        self,
+        bot: Bot,
+        redis: Redis,
+        db: AsyncSession,
+        session_maker: async_sessionmaker[AsyncSession] | None = None,
+    ) -> None:
         self.bot = bot
         self.redis = redis
         self.db = db
+        self.session_maker = session_maker  # нужен для fire-and-forget explanation
         self.queue = QueueService(redis)
         self.sessions = SessionManager(redis, db)
         self.users = UserRepository(db)
@@ -109,7 +122,7 @@ class MatcherService:
         await self.queue.remove_user(user1_id)
         await self.queue.remove_user(user2_id)
 
-        await self.sessions.create(user1_id, user2_id)
+        session_id = await self.sessions.create(user1_id, user2_id)
 
         for uid in (user1_id, user2_id):
             await self.bot.send_message(
@@ -118,4 +131,21 @@ class MatcherService:
                 reply_markup=chat_menu_kb,
             )
 
+        # Fire-and-forget карточка совместимости.
+        # session_maker отсутствует, когда MatcherService создан из ChatService
+        # (тот не вызывает _pair) — в этом случае пропускаем.
+        if self.session_maker is not None and settings.match_explain_enabled:
+            task = asyncio.create_task(
+                self._send_explanation(user1_id, user2_id, session_id)
+            )
+            _bg_tasks.add(task)
+            task.add_done_callback(_bg_tasks.discard)
+
         return user1_id, user2_id
+
+    async def _send_explanation(
+        self, user1_id: int, user2_id: int, session_id: str
+    ) -> None:
+        """Фоновая задача: строит и отправляет карточку совместимости."""
+        explainer = MatchExplainer(self.redis, self.session_maker)  # type: ignore[arg-type]
+        await explainer.build_and_send(self.bot, user1_id, user2_id, session_id)
