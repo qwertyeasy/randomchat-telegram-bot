@@ -30,13 +30,18 @@ PostgreSQL + pgvector · SQLAlchemy 2 async · Alembic · Redis · Docker.
   Модель: `cointegrated/rubert-tiny2-cedr-emotion-detection` (~60MB, нативный русский, emotion+sentiment).
   Семплинг: каждое `nlp_process_every`-е сообщение (Redis-счётчик `nlp:count:{id}`, не msg_count из БД).
   Семафор: `nlp_max_concurrent=4` параллельных инференса максимум.
+  Также калибрует `mbti_scores[4]` теми же сигналами (decay идентичный); в карточке `~MBTI` при msg_count < 30.
   Тексты не сохраняются. Деградация без torch — структурный анализ.
+- **Фаза 3.1** (NLP-калибровка MBTI) — промпт готов в [prompts/phase5_mbti_calibration.md](prompts/phase5_mbti_calibration.md), **не реализована**.
+  Суть: расширить `ProfileCalibrator.calibrate()` чтобы он также обновлял `mbti_scores[4]`
+  теми же NLP-сигналами и тем же decay. Маппинг: word_count→E/I, вопросы→N и P, эмоции→F.
+  Без миграций (поле уже есть). В карточке показывать `~MBTI` при msg_count < 30.
 - **Фаза 4** (умный матчинг) — готово (этот код): pgvector HNSW (`0003_hnsw_index`),
   `ProfileRepository.find_best_matches` (cosine `<=>` × geo-вес `exp(-dist/R)`), выбор random из top-k.
   Включается при ≥`match_min_queue_smart` совместимых, иначе fallback к first-compatible.
   Гео — опционально (кнопка `request_location` в настройках); нет координат → нейтральный
   geo-вес `match_geo_neutral_weight` (0.5), не лучший и не худший.
-- **Фаза 5** (объяснение мэтча) — готово (этот код): `MatchExplainer`, карточка (%, MBTI, теги, Haiku-текст),
+- **Фаза 5** (объяснение мэтча) — готово (этот код): `MatchExplainer`, карточка (%, живой MBTI с `~` при <30 сообщений, теги, Haiku-текст),
   fire-and-forget из `_pair()`, кэш `explanation:{session_id}` в Redis TTL 3600с.
   По умолчанию (`match_explain_llm_enabled=false`) — только расчёты и теги, без LLM.
   LLM опционален: `match_explain_llm_provider` = "anthropic" | "openai" | "github";

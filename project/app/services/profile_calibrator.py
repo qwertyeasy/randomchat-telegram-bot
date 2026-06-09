@@ -48,6 +48,25 @@ class ProfileCalibrator:
         # energy, thinking, humor — нет источника сигнала, остаются 0.0
         return [delta[dim] for dim in DIMENSIONS]
 
+    @staticmethod
+    def _build_mbti_delta(result: NLPResult) -> list[float]:
+        """NLPResult → дельта для [ei, sn, tf, jp].
+
+        Оси: положительный полюс = E / S / T / J.
+        Дельты малые — MBTI калибруется медленнее, чем personality_vector.
+        """
+        joy = result.emotion_scores.get("joy", 0.0)
+        sad = result.emotion_scores.get("sadness", 0.0)
+        anger = result.emotion_scores.get("anger", 0.0)
+        fear = result.emotion_scores.get("fear", 0.0)
+
+        ei = (min(result.word_count / 25.0, 1.0) - 0.4) * 0.25
+        sn = -0.25 if result.is_question else 0.05
+        tf = -(joy + sad + anger + fear) * 0.12
+        jp = -0.20 if result.is_question else 0.04
+
+        return [ei, sn, tf, jp]
+
     async def calibrate(self, user_id: int, text: str) -> None:
         if len(text.strip()) < settings.nlp_min_message_length:
             return
@@ -80,5 +99,14 @@ class ProfileCalibrator:
 
             if result.detected_topics:
                 await profile_repo.add_tags(user_id, result.detected_topics)
+
+            # Калибровка MBTI (если профиль прошёл онбординг и mbti_scores уже есть).
+            if profile.mbti_scores and len(profile.mbti_scores) == 4:
+                mbti_delta = self._build_mbti_delta(result)
+                old_mbti = list(profile.mbti_scores)
+                new_mbti = [
+                    self._clamp(old_mbti[i] + weight * mbti_delta[i]) for i in range(4)
+                ]
+                await profile_repo.update_mbti(user_id, new_mbti)
 
             await session.commit()

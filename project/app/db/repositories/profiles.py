@@ -41,6 +41,13 @@ class ProfileRepository:
         profile.msg_count = msg_count
         profile.updated_at = datetime.utcnow()
 
+    async def update_mbti(self, user_id: int, mbti_scores: list[float]) -> None:
+        profile = await self.get(user_id)
+        if profile is None:
+            return
+        profile.mbti_scores = mbti_scores
+        profile.updated_at = datetime.utcnow()
+
     async def add_tags(self, user_id: int, tags: list[str]) -> None:
         profile = await self.get(user_id)
         if profile is None:

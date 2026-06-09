@@ -46,11 +46,13 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def _mbti(scores: list[float] | None) -> str:
+def _mbti(scores: list[float] | None, msg_count: int = 0) -> str:
+    """Возвращает MBTI-тип. Префикс '~' если данных мало (< 30 сообщений)."""
     if not scores or len(scores) < 4:
         return "?"
     pairs = [("E", "I"), ("S", "N"), ("T", "F"), ("J", "P")]
-    return "".join(pos if s >= 0 else neg for s, (pos, neg) in zip(scores, pairs))
+    result = "".join(pos if s >= 0 else neg for s, (pos, neg) in zip(scores, pairs))
+    return f"~{result}" if msg_count < 30 else result
 
 
 def _top_traits(vector: list[float], n: int = 3) -> list[str]:
@@ -109,8 +111,8 @@ class MatchExplainer:
 
         cosine = _cosine_sim(v1, v2)
         compat = _compat_pct(cosine)
-        mbti1 = _mbti(p1.mbti_scores)
-        mbti2 = _mbti(p2.mbti_scores)
+        mbti1 = _mbti(p1.mbti_scores, p1.msg_count)
+        mbti2 = _mbti(p2.mbti_scores, p2.msg_count)
         common = _common_tags(list(p1.interest_tags or []), list(p2.interest_tags or []))
 
         lines = ["✨ *Карточка совместимости*", ""]
