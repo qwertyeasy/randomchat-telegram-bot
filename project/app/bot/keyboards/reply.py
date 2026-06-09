@@ -54,3 +54,13 @@ chat_settings_kb = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
+
+# Финальный шаг онбординга: предложить гео или пропустить.
+geo_request_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📍 Поделиться геолокацией", request_location=True)],
+        [KeyboardButton(text="Пропустить")],
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=True,
+)

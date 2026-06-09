@@ -4,8 +4,9 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.reply import main_menu_kb
+from app.bot.keyboards.reply import geo_request_kb, main_menu_kb
 from app.bot.states.flow import Onboarding, StartFlow
+from app.db.repositories.profiles import ProfileRepository
 from app.services.onboarding import INTEREST_CODES, OnboardingService
 
 router = Router()
@@ -149,7 +150,46 @@ async def onb_q5(callback: CallbackQuery, state: FSMContext, db: AsyncSession) -
     await service.complete(callback.from_user.id, answer_keys, tags)
     await db.commit()
 
-    await state.set_state(StartFlow.idle)
+    await state.set_state(Onboarding.geo)
     await callback.message.edit_text("Профиль готов — подбор стал точнее ✨")
-    await callback.message.answer("Используй поиск чата.", reply_markup=main_menu_kb)
+    await callback.message.answer(
+        "📍 Хочешь добавить геолокацию?\n"
+        "Это поможет находить собеседников поблизости. Данные используются только для подбора.",
+        reply_markup=geo_request_kb,
+    )
     await callback.answer()
+
+
+@router.message(Onboarding.geo, F.location)
+async def onb_geo_received(message: Message, state: FSMContext, db: AsyncSession) -> None:
+    profiles = ProfileRepository(db)
+    await profiles.update_location(
+        message.from_user.id,
+        message.location.latitude,
+        message.location.longitude,
+    )
+    # commit делает middleware
+    await state.set_state(StartFlow.idle)
+    await message.answer(
+        "📍 Геолокация сохранена. Используй поиск чата.",
+        reply_markup=main_menu_kb,
+    )
+
+
+@router.message(Onboarding.geo, F.text == "Пропустить")
+async def onb_geo_skip(message: Message, state: FSMContext) -> None:
+    await state.set_state(StartFlow.idle)
+    await message.answer(
+        "Геолокацию можно добавить позже в настройках.\nИспользуй поиск чата.",
+        reply_markup=main_menu_kb,
+    )
+
+
+# Мягкий fallback: любое другое сообщение на geo-шаге — повторяем подсказку,
+# не пропуская сообщение в релей/NLP. Регистрируется ПОСЛЕ специфичных хендлеров.
+@router.message(Onboarding.geo)
+async def onb_geo_fallback(message: Message) -> None:
+    await message.answer(
+        "Выбери кнопкой: «📍 Поделиться геолокацией» или «Пропустить».",
+        reply_markup=geo_request_kb,
+    )

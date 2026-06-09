@@ -55,8 +55,11 @@ async def save_location(message: Message, state: FSMContext, db: AsyncSession) -
     if message.location is None:
         return
 
-    # Защита: если пользователь ещё в регистрации — профиля нет, геолокация недоступна.
     current_state = await state.get_state()
+    # Гео во время онбординга обрабатывается своим хендлером в onboarding.py.
+    if current_state is not None and "Onboarding" in current_state:
+        return
+    # Если пользователь ещё в регистрации — профиля нет, геолокация недоступна.
     if current_state is not None and current_state.startswith("StartFlow"):
         await message.answer("Сначала завершите регистрацию.")
         return

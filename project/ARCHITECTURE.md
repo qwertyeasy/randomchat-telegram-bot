@@ -116,8 +116,12 @@ Legacy-ключи `chat:partner:*`, `chat:state:*`, `chat:room:*` упомина
 (Онбординг идёт ПОСЛЕ создания User, т.к. `user_profiles.user_id` — FK на `users`.)
 
 Онбординг ([handlers/onboarding.py](app/bot/handlers/onboarding.py) + [services/onboarding.py](app/services/onboarding.py),
-FSM `Onboarding.q1..q5`): 5 вопросов на inline-кнопках, ответы — callback-коды (`onb:q1:long`,
+FSM `Onboarding.q1..q5,geo`): 5 вопросов на inline-кнопках, ответы — callback-коды (`onb:q1:long`,
 Q4 — мультивыбор тегов с togg‑галочками). Ответы копятся в FSM-data (`onb_answers`, `onb_tags`).
+После Q5 профиль создаётся и идёт **geo-шаг** (`Onboarding.geo`, reply-кнопки «📍 геолокация» /
+«Пропустить»): локация → `update_location`, пропуск → дальше; обе ветки → `StartFlow.idle` + главное
+меню. Гео на этом шаге ловит `onb_geo_received` (onboarding_router включён раньше settings_router,
+плюс в `save_location` стоит гард `"Onboarding" in state`).
 
 На финале `OnboardingService.complete()`:
 - `build_vector(answers, tags)` → `personality_vector[12]` =

@@ -17,3 +17,4 @@ class Onboarding(StatesGroup):
     q3 = State()
     q4 = State()
     q5 = State()
+    geo = State()
