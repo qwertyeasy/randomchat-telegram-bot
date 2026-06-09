@@ -6,7 +6,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.handlers.onboarding import start_onboarding
-from app.bot.keyboards.reply import consent_kb, gender_kb, search_filter_kb, main_menu_kb
+from app.bot.keyboards.reply import consent_kb, gender_kb, search_filter_initial_kb, main_menu_kb
 from app.bot.states.flow import StartFlow
 from app.db.models import User
 from app.db.repositories.profiles import ProfileRepository
@@ -44,7 +44,7 @@ async def gender(message: Message, state: FSMContext, db: AsyncSession) -> None:
     gender_value = "male" if message.text == "Мужчина" else "female"
     await state.update_data(gender=gender_value)
     await state.set_state(StartFlow.search_filter)
-    await message.answer("Выбери фильтр поиска:", reply_markup=search_filter_kb)
+    await message.answer("Выбери фильтр поиска:", reply_markup=search_filter_initial_kb)
 
 
 @router.message(StartFlow.search_filter, F.text.in_(["Мужской", "Женский", "Не указано"]))

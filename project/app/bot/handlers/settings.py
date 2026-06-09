@@ -55,6 +55,12 @@ async def save_location(message: Message, state: FSMContext, db: AsyncSession) -
     if message.location is None:
         return
 
+    # Защита: если пользователь ещё в регистрации — профиля нет, геолокация недоступна.
+    current_state = await state.get_state()
+    if current_state is not None and current_state.startswith("StartFlow"):
+        await message.answer("Сначала завершите регистрацию.")
+        return
+
     profiles = ProfileRepository(db)
     if await profiles.get(message.from_user.id) is None:
         await state.set_state(None)

@@ -28,6 +28,16 @@ gender_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
+# Регистрация (StartFlow): без геолокации — иначе F.location сработал бы до создания профиля.
+search_filter_initial_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Мужской"), KeyboardButton(text="Женский")],
+        [KeyboardButton(text="Не указано")],
+    ],
+    resize_keyboard=True,
+)
+
+# Настройки (после регистрации): с кнопкой геолокации.
 search_filter_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Мужской"), KeyboardButton(text="Женский")],
