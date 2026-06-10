@@ -44,6 +44,11 @@ handlers (aiogram)  →  services (бизнес-логика)  →  repositories
 - **user_profiles** (Фаза 2): `user_id` (PK, FK→users), `personality_vector VECTOR(12)`,
   `interest_tags TEXT[]`, `latitude`/`longitude` (nullable), `mbti_scores FLOAT[4]`,
   `msg_count`, `updated_at`.
+- **session_outcomes** (Фаза 6): исход каждой завершённой сессии —
+  `session_id`, `user1_id`, `user2_id`, `msg_count_total`, `duration_sec`, `contact_shared`,
+  `early_exit`, `success_score`, `created_at`. Только агрегаты, без текстов.
+- **compatibility_matrix** (Фаза 6): singleton (id=1) — `matrix FLOAT[144]` (12×12 построчно),
+  `sample_count`, `updated_at`. Старт: единичная (= cosine).
 
 Миграции: [alembic/versions/](alembic/versions/) — `0001_init`, `0002_user_profiles`
 (делает `CREATE EXTENSION IF NOT EXISTS vector`), `0003_hnsw_index` (HNSW-индекс
@@ -64,6 +69,8 @@ handlers (aiogram)  →  services (бизнес-логика)  →  repositories
 | `rate_limit:{user_id}` | string(incr) | 60с | окно лимита (≤5 действий/мин) |
 | `nlp:count:{user_id}` | string(incr) | — | счётчик всех сообщений пользователя для семплинга NLP (каждое N-е) |
 | `explanation:{session_id}` | string | 3600с | кэш карточки совместимости (Фаза 5) |
+| `smsg:{session_id}` | string(incr) | — | счётчик сообщений сессии для фидбэка (Фаза 6); создаётся только при `phase6_feedback_enabled`, удаляется при закрытии |
+| `contact:{session_id}` | string | 3600с | флаг обмена контактом (сигнал успеха, Фаза 6) |
 | `explanation:{session_id}` | string | `match_explain_cache_ttl` (3600с) | кэш карточки совместимости (Фаза 5): %, MBTI, теги + опц. LLM-текст |
 
 Legacy-ключи `chat:partner:*`, `chat:state:*`, `chat:room:*` упоминаются только в
@@ -206,6 +213,33 @@ LLM-текст (2–3 предложения) опционален: `match_expla
 
 `session_maker` прокидывается в `MatcherService` **только из воркера**; `ChatService` создаёт
 matcher без него и `_pair` не вызывает, поэтому карточка не дублируется.
+
+## 7.7 Feedback loop + матрица совместимости (Фаза 6)
+
+Система учится на исходах сессий, **не трогая профили** (вектор/MBTI меняет только NLP).
+Две независимые фичи, обе по умолчанию выключены (`.env`):
+
+- `phase6_feedback_enabled` — собирать данные (запись исходов + обучение M);
+- `phase6_bilinear_enabled` — применять M в матчинге (включать **после** накопления ~сотен сессий).
+
+**Сбор сигналов** (без текстов): в `relay()` инкрементится `smsg:{session_id}` (только при включённой
+фиче); обмен контактом ставит `contact:{session_id}` ([chat_settings.py](app/bot/handlers/chat_settings.py));
+`started_at` лежит в Redis-хэше сессии. При `stop`/`next` `SessionManager.close()` возвращает данные хэша,
+`ChatService._fire_feedback` читает счётчики/duration, чистит ключи и **fire-and-forget** зовёт
+`FeedbackService.record` (своя DB-сессия, как у калибратора).
+
+**Обучение M** ([services/feedback.py](app/services/feedback.py)):
+- `compute_success_score(msg, dur, contact, early)` → `[0,1]` (веса: contact самый сильный, early_exit штраф);
+- `update_matrix` — Hebbian: `M += lr·(score−0.5)·outer(v1n, v2n)`, `lr = 0.005/√(n+1)`, clamp `[-2,2]`.
+  `score>0.5` усиливает паттерн пары, `<0.5` ослабляет. Запись в `session_outcomes` + апдейт singleton-строки.
+
+**Применение** ([profiles.py](app/db/repositories/profiles.py) `find_best_matches`): при переданной
+`compat_matrix` similarity = `bilinear(v_a, M, v_b)` (нормированные векторы) вместо cosine; pgvector `<=>`
+остаётся быстрым ANN-pre-filter. **M = I эквивалентна cosine** — пока матрица не обучилась, ранжирование
+не меняется. `matcher.try_match_once` грузит M из БД только при `phase6_bilinear_enabled`.
+
+Известное ограничение: брошенные сессии (оба ушли в офлайн, без `stop`/`next`) не закрываются →
+их `smsg` не удаляется (без TTL) и исход не пишется. Закрытие сессий по таймауту — задача будущей фазы.
 
 ## 8. Конвенции и подводные камни
 

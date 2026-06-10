@@ -52,6 +52,10 @@ async def share_contact(message: Message, redis: Redis, db: AsyncSession) -> Non
         first_name=contact.first_name,
         last_name=contact.last_name,
     )
+
+    # Сигнал для фидбэка (Фаза 6): обмен контактом — сильный позитивный исход.
+    await redis.set(f"contact:{session_id}", "1", ex=3600)
+
     await message.answer(
         "Контакт отправлен собеседнику.",
         reply_markup=chat_menu_kb,

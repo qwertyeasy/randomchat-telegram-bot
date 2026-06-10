@@ -47,7 +47,13 @@ PostgreSQL + pgvector · SQLAlchemy 2 async · Alembic · Redis · Docker.
   LLM опционален: `match_explain_llm_provider` = "anthropic" | "openai" | "github";
   ключи `anthropic_api_key` / `openai_api_key` / `github_token` задаются в `.env`.
   GitHub Models — бесплатно с любым GitHub-аккаунтом, OpenAI-совместимый API;
-- **Фаза 6+** (feedback loop, матрица совместимости, метрики) — следующая.
+- **Фаза 6** (feedback loop, матрица совместимости) — готово (этот код, `0004_phase6_feedback`):
+  при закрытии сессии (`stop`/`next`) `FeedbackService` пишет `session_outcomes` (msg/duration/contact/early_exit →
+  `success_score`) и Hebbian-обновляет матрицу M (12×12, singleton-строка). Матчинг по `v_a^T·M·v_b` вместо cosine.
+  Два флага в `.env`: `phase6_feedback_enabled` (копить данные) и `phase6_bilinear_enabled` (включать M после
+  накопления). M стартует как I → поведение = cosine, пока не обучится. Векторы пользователей feedback НЕ трогает.
+  Сигналы из Redis: `smsg:{session_id}` (счётчик), `contact:{session_id}` (флаг обмена).
+- **Фаза 7** (метрики, мониторинг, A/B) — следующая.
 
 ROADMAP — план; **фактическое состояние** кода описывает [ARCHITECTURE.md](ARCHITECTURE.md).
 Реализация может опережать план или отклоняться (напр. `pgvector VECTOR(12)` введён уже в Фазе 2,

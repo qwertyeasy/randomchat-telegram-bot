@@ -91,3 +91,32 @@ class UserProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+
+class SessionOutcome(Base):
+    """Исход сессии — сигналы для обучения матрицы M (Фаза 6). Без текстов."""
+    __tablename__ = "session_outcomes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(nullable=False, index=True)
+    user1_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user2_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    msg_count_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    contact_shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    early_exit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    success_score: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class CompatibilityMatrix(Base):
+    """Обучаемая матрица совместимости M (12×12 = 144 float), хранится построчно.
+
+    Singleton-таблица: всегда одна строка id=1. Старт: M = I (поведение = cosine).
+    """
+    __tablename__ = "compatibility_matrix"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    matrix: Mapped[list[float]] = mapped_column(ARRAY(Float), nullable=False)
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

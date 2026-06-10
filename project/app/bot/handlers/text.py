@@ -43,7 +43,7 @@ async def relay_text(message: Message, redis: Redis, db: AsyncSession) -> None:
     }:
         return
 
-    service = ChatService(message.bot, redis, db)
+    service = ChatService(message.bot, redis, db, session_maker=session_maker)
     await service.relay(
         user_id=message.from_user.id,
         chat_id=message.chat.id,

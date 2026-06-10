@@ -33,6 +33,7 @@ class SessionManager:
                 "user1_id": user1_id,
                 "user2_id": user2_id,
                 "status": "active",
+                "started_at": datetime.utcnow().isoformat(),
             },
         )
         await self.redis.set(f"user:{user1_id}:session", session_id)
@@ -56,7 +57,9 @@ class SessionManager:
             return u1
         return None
 
-    async def close(self, session_id: str) -> None:
+    async def close(self, session_id: str) -> dict:
+        """Закрыть сессию. Возвращает данные из Redis-хэша (до удаления) —
+        caller может прочитать user1_id/user2_id/started_at для фидбэка (Фаза 6)."""
         data = await self.redis.hgetall(f"session:{session_id}")
         if data:
             for uid in (data.get("user1_id"), data.get("user2_id")):
@@ -70,5 +73,6 @@ class SessionManager:
         try:
             sid = uuid.UUID(session_id)
         except (ValueError, TypeError):
-            return
+            return data
         await self.sessions.close(sid, datetime.utcnow())
+        return data

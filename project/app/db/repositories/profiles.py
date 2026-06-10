@@ -75,9 +75,13 @@ class ProfileRepository:
         radius_km: float,
         top_k: int,
         neutral_geo_weight: float = 0.5,
+        compat_matrix: list[float] | None = None,
     ) -> list[int]:
         """Возвращает до top_k user_id из candidate_ids, отсортированных по
-        combined_score = cosine_similarity * geo_weight (убывание).
+        combined_score = similarity * geo_weight (убывание).
+
+        similarity = cosine, либо bilinear `v_a^T·M·v_b` если передана compat_matrix
+        (Фаза 6). pgvector <=> остаётся быстрым ANN-pre-filter в любом случае.
         """
         if not candidate_ids:
             return []
@@ -86,11 +90,14 @@ class ProfileRepository:
         # cosine_similarity = 1 - distance. Литерал безопасен — это наши float'ы.
         vec_literal = f"'[{','.join(str(v) for v in query_vector)}]'::vector"
 
+        # personality_vector::text — чтобы парсить детерминированно (на raw text()-запросе
+        # pgvector-кодек не гарантирован, значение может прийти строкой).
         stmt = text(f"""
             SELECT
                 user_id,
                 latitude,
                 longitude,
+                personality_vector::text AS pvec,
                 1 - (personality_vector <=> {vec_literal}) AS cosine_sim
             FROM user_profiles
             WHERE user_id = ANY(:ids)
@@ -120,9 +127,26 @@ class ProfileRepository:
                 return neutral_geo_weight
             return math.exp(-haversine(lat, lon, rlat, rlon) / radius_km)
 
-        scored = [
-            (row.user_id, row.cosine_sim * geo_weight(row.latitude, row.longitude))
-            for row in rows
-        ]
+        def parse_vec(raw) -> list[float]:
+            if isinstance(raw, (list, tuple)):
+                return [float(x) for x in raw]
+            return [float(x) for x in str(raw).strip("[]").split(",") if x.strip()]
+
+        def bilinear(va: list[float], M: list[float], vb: list[float]) -> float:
+            """v_a^T · M · v_b (M построчно, 144 элемента для 12×12)."""
+            n = 12
+            norm_a = math.sqrt(sum(x * x for x in va)) or 1.0
+            norm_b = math.sqrt(sum(x * x for x in vb)) or 1.0
+            an = [x / norm_a for x in va]
+            bn = [x / norm_b for x in vb]
+            return sum(an[i] * M[i * n + j] * bn[j] for i in range(n) for j in range(n))
+
+        scored = []
+        for row in rows:
+            if compat_matrix is not None:
+                sim = bilinear(query_vector, compat_matrix, parse_vec(row.pvec))
+            else:
+                sim = row.cosine_sim
+            scored.append((row.user_id, sim * geo_weight(row.latitude, row.longitude)))
         scored.sort(key=lambda x: -x[1])
         return [uid for uid, _ in scored[:top_k]]

@@ -153,36 +153,83 @@ new_vector[i] = old_vector[i] + update_weight * delta[i]
 
 ---
 
-## Фаза 6 — Feedback Loop + обучающаяся матрица (~3–4 нед)
+## Фаза 6 — Feedback Loop + история пар (~3–4 нед)
 
-**Цель:** система обучается на результатах реальных сессий.
+**Цель:** система обучается на результатах реальных сессий без хранения текстов.
 
 ### Сигналы (без текстов)
-| Сигнал | Тип |
-|--------|-----|
-| session_msg_count | позитивный, количественный |
-| session_duration | позитивный, количественный |
-| contact_shared | сильный позитивный, бинарный |
-| early_exit (< N сообщений) | негативный, бинарный |
+| Сигнал | Тип | Источник |
+|--------|-----|----------|
+| `msg_count_total` | позитивный, количественный | `chat_sessions.msg_count_a + msg_count_b` |
+| `duration_seconds` | позитивный, количественный | `ended_at - started_at` |
+| `contact_shared` | сильный позитивный, бинарный | уже реализовано в боте |
+| `early_exit` (< 5 сообщений) | негативный, бинарный | вычисляется при закрытии сессии |
+
+### Новая таблица: `session_outcomes`
+```sql
+session_outcomes(
+  id              SERIAL PRIMARY KEY,
+  session_id      UUID REFERENCES chat_sessions,
+  user_a_id       BIGINT REFERENCES users,
+  user_b_id       BIGINT REFERENCES users,
+  msg_count_total INT,
+  duration_sec    INT,
+  contact_shared  BOOLEAN DEFAULT FALSE,
+  early_exit      BOOLEAN DEFAULT FALSE,
+  success_score   FLOAT,   -- вычисляется при записи
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+)
+```
 
 ### Success score
 ```python
-score = w1*log(msg_count+1) + w2*duration_min + w3*contact_bonus - w4*early_exit_penalty
-# нормализуем в [0, 1]
+# w-коэффициенты — настраивать через .env
+score_raw = (
+    0.35 * math.log(msg_count + 1) +
+    0.25 * min(duration_sec / 300, 1.0) +   # насыщение на 5 мин
+    0.50 * float(contact_shared) -
+    0.40 * float(early_exit)
+)
+success_score = max(0.0, min(1.0, score_raw / 1.1))  # нормализация
 ```
 
-### Матрица совместимости
-- Храним: для каждой пары (vector_bucket_a × vector_bucket_b) → накопленный score
-- Старт: identity (равные веса)
-- Обновление: EMA (exponential moving average)
-- Продвинутая версия (при наличии данных): LightFM / implicit ALS
+### Матрица совместимости M (12×12)
 
-### Обновление личного профиля
-- Успешная сессия → слегка смещаем вектор пользователя в сторону вектора партнёра
-- Неуспешная → без изменений (не штрафуем)
+`personality_vector` пользователя обновляется **только через NLP** (Phase 3) — не через исходы сессий.
+Phase 6 обучает отдельную матрицу совместимости M, не трогая профили пользователей.
+
+**Ключевой принцип:** cosine similarity находит *похожих*, M находит *совместимых* — это не одно и то же.
+Экстраверт + интроверт могут давать отличные сессии несмотря на разные векторы.
+
+**Скор матчинга** меняется с cosine на bilinear форму:
+```python
+# Phase 4 (текущее):   score = dot(v_a, v_b) / (|v_a| * |v_b|)
+# Phase 6 (новое):     score = v_a^T · M · v_b / (|v_a| * |v_b|)
+```
+
+M хранится в БД (144 float-значения). Начальное состояние: M = I (идентично cosine similarity).
+
+**Правило обновления** — после каждой сессии (fire-and-forget):
+```python
+lr = 0.005 / math.sqrt(total_sessions + 1)  # decay
+delta_M = lr * (success_score - 0.5) * outer(v_a_norm, v_b_norm)
+M = M + delta_M
+# clamp M[i][j] в [-2.0, 2.0]
+```
+- `success_score > 0.5` → усиливает паттерн этой пары
+- `success_score < 0.5` → ослабляет
+- Со временем M[i][j] < 0 для измерений, где противоположности сочетаются лучше
+
+**Дополнительно:** пара уже встречалась → история из `session_outcomes` как hard filter:
+- `early_exit=True` на предыдущей встрече → исключить из кандидатов на X дней
+
+### Продвинутый матчинг (Phase 7, при достаточной базе ≥ 1000 пар)
+`implicit ALS` или `LightFM` как альтернативный ранкер поверх bilinear M.
 
 ### Результат
-Система обучается на данных, матрица становится умнее с ростом базы.
+- Система учится совместимости, а не только похожести
+- Complementary-паттерны обнаруживаются автоматически из данных
+- Векторы пользователей остаются чистым отражением их речевого стиля
 
 ---
 

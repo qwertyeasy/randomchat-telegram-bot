@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.keyboards.reply import chat_menu_kb
 from app.core.config import settings
+from app.db.repositories.matrix import MatrixRepository
 from app.db.repositories.profiles import ProfileRepository
 from app.db.repositories.users import UserRepository
 from app.services.match_explainer import MatchExplainer
@@ -96,10 +97,16 @@ class MatcherService:
 
                 compatible_ids = [int(c["user_id"]) for c in compatible]
 
-                # Умный матчинг: при достаточной очереди ранжируем по cosine * geo.
+                # Умный матчинг: при достаточной очереди ранжируем по similarity * geo.
                 if len(compatible_ids) >= settings.match_min_queue_smart:
                     profile = await self.profiles.get(first_id)
                     if profile is not None and profile.personality_vector is not None:
+                        # Bilinear-матрица M (Фаза 6) — только если фича включена.
+                        compat_matrix: list[float] | None = None
+                        if settings.phase6_bilinear_enabled:
+                            m_obj = await MatrixRepository(self.db).get()
+                            compat_matrix = m_obj.matrix
+
                         best_ids = await self.profiles.find_best_matches(
                             query_vector=list(profile.personality_vector),
                             candidate_ids=compatible_ids,
@@ -108,6 +115,7 @@ class MatcherService:
                             radius_km=settings.match_geo_radius_km,
                             top_k=settings.match_top_k,
                             neutral_geo_weight=settings.match_geo_neutral_weight,
+                            compat_matrix=compat_matrix,
                         )
                         if best_ids:
                             second_id = random.choice(best_ids)

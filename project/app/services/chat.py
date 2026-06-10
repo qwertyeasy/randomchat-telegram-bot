@@ -1,10 +1,17 @@
+import asyncio
+import logging
+from datetime import datetime
+
 from aiogram import Bot
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.keyboards.reply import chat_menu_kb, main_menu_kb
+from app.core.config import settings
 from app.services.matcher import MatcherService
 from app.services.session_manager import SessionManager
+
+logger = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -24,12 +31,20 @@ class ChatService:
         "Слишком много запросов. Подождите минуту.",
     }
 
-    def __init__(self, bot: Bot, redis: Redis, db: AsyncSession):
+    def __init__(
+        self,
+        bot: Bot,
+        redis: Redis,
+        db: AsyncSession,
+        session_maker: async_sessionmaker[AsyncSession] | None = None,
+    ) -> None:
         self.bot = bot
         self.redis = redis
         self.db = db
+        self.session_maker = session_maker  # для fire-and-forget фидбэка (Фаза 6)
         self.sessions = SessionManager(redis, db)
         self.matcher = MatcherService(bot, redis, db)
+        self._bg_tasks: set[asyncio.Task] = set()
 
     def _is_system_text(self, text: str | None) -> bool:
         return bool(text) and (text in self.SYSTEM_TEXTS)
@@ -75,6 +90,11 @@ class ChatService:
         )
         await self.redis.set(f"afk:{session_id}", "1", ex=120)
 
+        # Per-session счётчик сообщений для фидбэка (Фаза 6). Гейтим, чтобы при
+        # выключенной фиче ключи без TTL не накапливались.
+        if settings.phase6_feedback_enabled:
+            await self.redis.incr(f"smsg:{session_id}")
+
     async def close_session(self, user_id: int) -> str | None:
         session_id = await self.sessions.get_session_id(user_id)
         if not session_id:
@@ -89,8 +109,9 @@ class ChatService:
 
         if session_id:
             partner_id = await self.sessions.get_partner(session_id, user_id)
-            await self.sessions.close(session_id)
+            session_data = await self.sessions.close(session_id)
             await self.redis.delete(f"afk:{session_id}")
+            await self._fire_feedback(session_id, session_data)
 
         await self.matcher.remove_from_queue(user_id)
         if partner_id:
@@ -112,8 +133,9 @@ class ChatService:
 
         if session_id:
             partner_id = await self.sessions.get_partner(session_id, user_id)
-            await self.sessions.close(session_id)
+            session_data = await self.sessions.close(session_id)
             await self.redis.delete(f"afk:{session_id}")
+            await self._fire_feedback(session_id, session_data)
 
         await self.matcher.remove_from_queue(user_id)
         if partner_id:
@@ -127,6 +149,46 @@ class ChatService:
             )
 
         return partner_id
+
+    async def _fire_feedback(self, session_id: str, session_data: dict) -> None:
+        """Считать сигналы сессии из Redis и fire-and-forget записать исход (Фаза 6)."""
+        if self.session_maker is None or not settings.phase6_feedback_enabled:
+            return
+        if not session_data:
+            return
+
+        try:
+            user1_id = int(session_data.get("user1_id", 0))
+            user2_id = int(session_data.get("user2_id", 0))
+        except (TypeError, ValueError):
+            return
+        if not (user1_id and user2_id):
+            return
+
+        msg_count = int(await self.redis.get(f"smsg:{session_id}") or 0)
+        contact_shared = bool(await self.redis.get(f"contact:{session_id}"))
+
+        duration_sec = 0
+        started_raw = session_data.get("started_at")
+        if started_raw:
+            try:
+                duration_sec = int((datetime.utcnow() - datetime.fromisoformat(started_raw)).total_seconds())
+            except ValueError:
+                duration_sec = 0
+
+        await self.redis.delete(f"smsg:{session_id}", f"contact:{session_id}")
+
+        from app.services.feedback import FeedbackService
+
+        feedback = FeedbackService(self.session_maker)
+        task = asyncio.create_task(
+            feedback.record(
+                session_id, user1_id, user2_id, msg_count, duration_sec, contact_shared,
+                settings.phase6_early_exit_threshold,
+            )
+        )
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
 
     async def end_chat_for_user(self, user_id: int, reason: str = "Чат завершен") -> None:
         partner_id = await self.redis.get(f"chat:partner:{user_id}")
