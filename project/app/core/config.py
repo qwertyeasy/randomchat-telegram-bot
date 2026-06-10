@@ -37,9 +37,9 @@ class Settings(BaseSettings):
     github_token: str = ""                 # GitHub Personal Access Token (classic, без доп. scopes)
 
     # Phase 6 — feedback loop
-    phase6_feedback_enabled: bool = False   # запись исходов сессий и обучение M
-    phase6_bilinear_enabled: bool = False   # использовать M в матчинге (включать после накопления данных)
-    phase6_early_exit_threshold: int = 5    # < N сообщений = early_exit
+    feedback_enabled: bool = True   # запись исходов сессий и обучение M
+    bilinear_enabled: bool = False   # использовать M в матчинге (включать после накопления данных)
+    early_exit_threshold: int = 5    # < N сообщений = early_exit
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
