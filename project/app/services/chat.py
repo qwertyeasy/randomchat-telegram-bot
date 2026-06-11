@@ -92,7 +92,7 @@ class ChatService:
 
         # Per-session счётчик сообщений для фидбэка (Фаза 6). Гейтим, чтобы при
         # выключенной фиче ключи без TTL не накапливались.
-        if settings.phase6_feedback_enabled:
+        if settings.feedback_enabled:
             await self.redis.incr(f"smsg:{session_id}")
 
     async def close_session(self, user_id: int) -> str | None:
@@ -152,7 +152,7 @@ class ChatService:
 
     async def _fire_feedback(self, session_id: str, session_data: dict) -> None:
         """Считать сигналы сессии из Redis и fire-and-forget записать исход (Фаза 6)."""
-        if self.session_maker is None or not settings.phase6_feedback_enabled:
+        if self.session_maker is None or not settings.feedback_enabled:
             return
         if not session_data:
             return
@@ -184,7 +184,7 @@ class ChatService:
         task = asyncio.create_task(
             feedback.record(
                 session_id, user1_id, user2_id, msg_count, duration_sec, contact_shared,
-                settings.phase6_early_exit_threshold,
+                settings.early_exit_threshold,
             )
         )
         self._bg_tasks.add(task)

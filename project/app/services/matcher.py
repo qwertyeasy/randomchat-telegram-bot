@@ -103,7 +103,7 @@ class MatcherService:
                     if profile is not None and profile.personality_vector is not None:
                         # Bilinear-матрица M (Фаза 6) — только если фича включена.
                         compat_matrix: list[float] | None = None
-                        if settings.phase6_bilinear_enabled:
+                        if settings.bilinear_enabled:
                             m_obj = await MatrixRepository(self.db).get()
                             compat_matrix = m_obj.matrix
 

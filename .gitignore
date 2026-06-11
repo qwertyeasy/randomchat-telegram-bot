@@ -2,4 +2,4 @@
 __pycache__/
 project/.env
 .vscode/
-project/update-project.sh
+project/update-project
