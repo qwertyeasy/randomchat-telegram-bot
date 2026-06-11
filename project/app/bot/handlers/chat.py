@@ -5,7 +5,6 @@ from aiogram.types import Message
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.reply import chat_menu_kb, main_menu_kb
 from app.db.session import session_maker
 from app.services.chat import ChatService
 from app.services.moderation import ModerationService
@@ -29,15 +28,6 @@ async def next_chat(message: Message, state: FSMContext, redis: Redis, db: Async
     service = ChatService(message.bot, redis, db, session_maker=session_maker)
     await service.next_chat(message.from_user.id)
     await state.set_state(None)
-
-
-@router.message(Command("stop"))
-@router.message(F.text == "⏹ Выйти")
-async def stop_chat(message: Message, state: FSMContext, redis: Redis, db: AsyncSession) -> None:
-    service = ChatService(message.bot, redis, db, session_maker=session_maker)
-    await service.stop_chat(message.from_user.id)
-    await state.clear()
-    await message.answer("Чат завершён.", reply_markup=main_menu_kb)
 
 
 @router.message(Command("complain"))

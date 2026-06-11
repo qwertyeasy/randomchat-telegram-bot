@@ -107,11 +107,11 @@ class ChatService:
         session_id = await self.sessions.get_session_id(user_id)
         partner_id = None
 
+        session_data: dict = {}
         if session_id:
             partner_id = await self.sessions.get_partner(session_id, user_id)
             session_data = await self.sessions.close(session_id)
             await self.redis.delete(f"afk:{session_id}")
-            await self._fire_feedback(session_id, session_data)
 
         await self.matcher.remove_from_queue(user_id)
         if partner_id:
@@ -124,18 +124,22 @@ class ChatService:
                 reply_markup=main_menu_kb,
             )
 
+        # Фидбэк — после полного выхода, до нового поиска.
+        if session_id:
+            await self._fire_feedback(session_id, session_data)
+
         await self.start_search(user_id)
         return partner_id
 
     async def stop_chat(self, user_id: int) -> int | None:
         session_id = await self.sessions.get_session_id(user_id)
         partner_id = None
+        session_data: dict = {}
 
         if session_id:
             partner_id = await self.sessions.get_partner(session_id, user_id)
             session_data = await self.sessions.close(session_id)
             await self.redis.delete(f"afk:{session_id}")
-            await self._fire_feedback(session_id, session_data)
 
         await self.matcher.remove_from_queue(user_id)
         if partner_id:
@@ -148,10 +152,17 @@ class ChatService:
                 reply_markup=main_menu_kb,
             )
 
+        # Фидбэк — в самом конце, после полного выхода (не должен влиять на UX).
+        if session_id:
+            await self._fire_feedback(session_id, session_data)
+
         return partner_id
 
     async def _fire_feedback(self, session_id: str, session_data: dict) -> None:
-        """Считать сигналы сессии из Redis и fire-and-forget записать исход (Фаза 6)."""
+        """Считать сигналы сессии из Redis и fire-and-forget записать исход (Фаза 6).
+
+        Полностью изолирован: любая ошибка логируется и НЕ влияет на выход из чата.
+        """
         if self.session_maker is None or not settings.phase6_feedback_enabled:
             return
         if not session_data:
@@ -160,35 +171,38 @@ class ChatService:
         try:
             user1_id = int(session_data.get("user1_id", 0))
             user2_id = int(session_data.get("user2_id", 0))
-        except (TypeError, ValueError):
-            return
-        if not (user1_id and user2_id):
-            return
+            if not (user1_id and user2_id):
+                return
 
-        msg_count = int(await self.redis.get(f"smsg:{session_id}") or 0)
-        contact_shared = bool(await self.redis.get(f"contact:{session_id}"))
+            msg_count = int(await self.redis.get(f"smsg:{session_id}") or 0)
+            contact_shared = bool(await self.redis.get(f"contact:{session_id}"))
 
-        duration_sec = 0
-        started_raw = session_data.get("started_at")
-        if started_raw:
-            try:
-                duration_sec = int((datetime.utcnow() - datetime.fromisoformat(started_raw)).total_seconds())
-            except ValueError:
-                duration_sec = 0
+            duration_sec = 0
+            started_raw = session_data.get("started_at")
+            if started_raw:
+                try:
+                    duration_sec = int(
+                        (datetime.utcnow() - datetime.fromisoformat(started_raw)).total_seconds()
+                    )
+                except ValueError:
+                    duration_sec = 0
 
-        await self.redis.delete(f"smsg:{session_id}", f"contact:{session_id}")
+            await self.redis.delete(f"smsg:{session_id}")
+            await self.redis.delete(f"contact:{session_id}")
 
-        from app.services.feedback import FeedbackService
+            from app.services.feedback import FeedbackService
 
-        feedback = FeedbackService(self.session_maker)
-        task = asyncio.create_task(
-            feedback.record(
-                session_id, user1_id, user2_id, msg_count, duration_sec, contact_shared,
-                settings.phase6_early_exit_threshold,
+            feedback = FeedbackService(self.session_maker)
+            task = asyncio.create_task(
+                feedback.record(
+                    session_id, user1_id, user2_id, msg_count, duration_sec, contact_shared,
+                    settings.phase6_early_exit_threshold,
+                )
             )
-        )
-        self._bg_tasks.add(task)
-        task.add_done_callback(self._bg_tasks.discard)
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
+        except Exception:
+            logger.exception("fire_feedback failed for session %s", session_id)
 
     async def end_chat_for_user(self, user_id: int, reason: str = "Чат завершен") -> None:
         partner_id = await self.redis.get(f"chat:partner:{user_id}")

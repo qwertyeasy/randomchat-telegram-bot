@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, Message
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.keyboards.reply import main_menu_kb
 from app.db.session import session_maker
 from app.services.chat import ChatService
 
@@ -17,6 +18,7 @@ async def stop_command(message: Message, state: FSMContext, redis: Redis, db: As
     chat_service = ChatService(message.bot, redis, db, session_maker=session_maker)
     await chat_service.stop_chat(message.from_user.id)
     await state.clear()
+    await message.answer("Чат завершён.", reply_markup=main_menu_kb)
 
 
 @router.callback_query(F.data == "stop")
@@ -24,4 +26,5 @@ async def stop_callback(callback: CallbackQuery, state: FSMContext, redis: Redis
     chat_service = ChatService(callback.bot, redis, db, session_maker=session_maker)
     await chat_service.stop_chat(callback.from_user.id)
     await state.clear()
+    await callback.message.answer("Чат завершён.", reply_markup=main_menu_kb)
     await callback.answer()
